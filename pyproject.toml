@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "cdse-client"
-version = "0.3.0"
+version = "0.3.1"
 description = "Python client for Copernicus Data Space Ecosystem (CDSE) - Drop-in replacement for sentinelsat"
 readme = "README.md"
 license = "MIT"

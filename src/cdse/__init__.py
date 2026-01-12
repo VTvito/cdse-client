@@ -32,7 +32,7 @@ from cdse.geometry import (
 )
 from cdse.product import Product
 
-__version__ = "0.3.0"
+__version__ = "0.3.1"
 __author__ = "Vito D'Elia"
 __email__ = "75219756+VTvito@users.noreply.github.com"
 
