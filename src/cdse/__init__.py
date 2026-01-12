@@ -80,10 +80,8 @@ def __getattr__(name):
 
         return download_products_async
 
-    # Processing module - Coming in future release
-    # if name in ("crop_to_bbox", "extract_bands_from_safe", ...):
-    #     from cdse import processing
-    #     return getattr(processing, name)
+    # Processing module
+    # Import directly as `import cdse.processing` (requires: pip install cdse-client[processing]).
 
     # Geocoding module
     if name in (
