@@ -1,32 +1,32 @@
 """Tests for processing module."""
 
-import pytest
-from unittest.mock import MagicMock, patch, mock_open
-from pathlib import Path
 import tempfile
-import numpy as np
+from pathlib import Path
 
-# Skip all tests if rasterio is not installed
+import pytest
+
+# Skip all tests if rasterio or numpy is not installed
 rasterio = pytest.importorskip("rasterio")
+np = pytest.importorskip("numpy")
 
-from cdse.processing import (
-    SENTINEL2_BANDS,
+from cdse.exceptions import ValidationError  # noqa: E402
+from cdse.processing import (  # noqa: E402
     BAND_COMBINATIONS,
-    crop_to_bbox,
-    extract_bands_from_safe,
-    stack_bands,
-    crop_and_stack,
+    SENTINEL2_BANDS,
     calculate_ndvi,
-    reproject,
+    compare_previews,
     # Preview functions
     create_rgb_preview,
+    create_thumbnail,
+    crop_and_stack,
+    crop_to_bbox,
+    extract_bands_from_safe,
+    get_bounds_from_raster,
     preview_product,
     quick_preview,
-    create_thumbnail,
-    compare_previews,
-    get_bounds_from_raster,
+    reproject,
+    stack_bands,
 )
-from cdse.exceptions import ValidationError
 
 
 class TestConstants:
@@ -122,7 +122,7 @@ class TestPreviewFunctionsCallable:
 
 # Check if PIL is available for preview tests
 try:
-    from PIL import Image
+    from PIL import Image  # noqa: F401
 
     HAS_PIL = True
 except ImportError:

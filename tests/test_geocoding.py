@@ -16,6 +16,7 @@ from cdse.geocoding import (
 # Check if geopy is available for tests that need it
 try:
     import geopy  # noqa: F401
+
     HAS_GEOPY = True
 except ImportError:
     HAS_GEOPY = False
