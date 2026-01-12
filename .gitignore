@@ -157,7 +157,3 @@ notebooks/outputs/
 
 # Test artifacts
 quick_test.py
-
-# Features in development (not in release)
-src/cdse/processing.py
-tests/test_processing.py
