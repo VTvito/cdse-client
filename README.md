@@ -3,7 +3,7 @@
 [![PyPI version](https://badge.fury.io/py/cdse-client.svg)](https://badge.fury.io/py/cdse-client)
 [![Python](https://img.shields.io/pypi/pyversions/cdse-client.svg)](https://pypi.org/project/cdse-client/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Downloads](https://pepy.tech/badge/cdse-client/month)](https://pepy.tech/project/cdse-client)
+[![Downloads](https://img.shields.io/pypi/dm/cdse-client)](https://pypi.org/project/cdse-client/)
 [![CI](https://github.com/VTvito/cdse-client/actions/workflows/ci.yml/badge.svg)](https://github.com/VTvito/cdse-client/actions)
 
 **Python client for Copernicus Data Space Ecosystem (CDSE)** — a modern replacement for workflows previously built around `sentinelsat`.

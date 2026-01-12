@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.3] - 2026-01-12
+
+### Changed
+
+- README: use a more reliable PyPI downloads badge and refresh examples.
+- Packaging: point project metadata documentation URL to the hosted docs site.
+
+### Added
+
+- New runnable examples under `examples/` (sync, async, processing).
+
 ## [0.3.0] - 2026-01-04
 
 ### Added
