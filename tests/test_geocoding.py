@@ -13,6 +13,15 @@ from cdse.geocoding import (
     get_predefined_bbox,
 )
 
+# Check if geopy is available for tests that need it
+try:
+    import geopy  # noqa: F401
+    HAS_GEOPY = True
+except ImportError:
+    HAS_GEOPY = False
+
+requires_geopy = pytest.mark.skipif(not HAS_GEOPY, reason="geopy not installed")
+
 
 class TestGetPredefinedBbox:
     """Tests for get_predefined_bbox function."""
@@ -67,6 +76,7 @@ class TestGetPredefinedBbox:
             assert min_lat < max_lat, f"Invalid lat for {city}"
 
 
+@requires_geopy
 class TestGetCityBbox:
     """Tests for get_city_bbox function (requires geopy)."""
 
@@ -139,6 +149,7 @@ class TestGetCityBbox:
             pass  # Functionality tested manually
 
 
+@requires_geopy
 class TestGetCityCenter:
     """Tests for get_city_center function."""
 
@@ -175,6 +186,7 @@ class TestGetCityCenter:
         assert "not found" in str(exc_info.value)
 
 
+@requires_geopy
 class TestGetLocationInfo:
     """Tests for get_location_info function."""
 

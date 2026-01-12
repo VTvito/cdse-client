@@ -23,19 +23,37 @@ pip install cdse-client[all]         # Everything
 
 1. Register at [Copernicus Data Space](https://dataspace.copernicus.eu/)
 2. Create OAuth2 credentials in [Account Settings](https://dataspace.copernicus.eu/profile)
+3. Configure credentials using **one** of the methods below:
 
-Environment variables:
+### Option A: Environment variables (recommended for production)
 
-- macOS/Linux (bash/zsh)
-    ```bash
-    export CDSE_CLIENT_ID="your-client-id"
-    export CDSE_CLIENT_SECRET="your-client-secret"
-    ```
-- Windows (PowerShell)
-    ```powershell
-    $env:CDSE_CLIENT_ID = "your-client-id"
-    $env:CDSE_CLIENT_SECRET = "your-client-secret"
-    ```
+**macOS/Linux (bash/zsh)**
+```bash
+export CDSE_CLIENT_ID="your-client-id"
+export CDSE_CLIENT_SECRET="your-client-secret"
+```
+
+**Windows (PowerShell)**
+```powershell
+$env:CDSE_CLIENT_ID = "your-client-id"
+$env:CDSE_CLIENT_SECRET = "your-client-secret"
+```
+
+### Option B: `.env` file (recommended for development)
+
+Copy the example file and fill in your credentials:
+```bash
+cp .env.example .env
+# Edit .env with your credentials
+```
+
+The `.env` file format:
+```
+CDSE_CLIENT_ID=your-client-id
+CDSE_CLIENT_SECRET=your-client-secret
+```
+
+> **Note**: The `.env` file is automatically ignored by git. Never commit credentials.
 
 ## Quick start
 
