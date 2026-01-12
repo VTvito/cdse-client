@@ -27,8 +27,7 @@ class OAuth2Auth:
     """
 
     TOKEN_URL = (
-        "https://identity.dataspace.copernicus.eu/auth/realms/CDSE"
-        "/protocol/openid-connect/token"
+        "https://identity.dataspace.copernicus.eu/auth/realms/CDSE/protocol/openid-connect/token"  # nosec B105
     )
 
     def __init__(
@@ -111,7 +110,7 @@ class OAuth2Auth:
             self._token_expires_at = self._token.get("expires_at", time.time() + 600)
 
         except Exception as e:
-            raise AuthenticationError(f"OAuth2 authentication failed: {e}")
+            raise AuthenticationError(f"OAuth2 authentication failed: {e}") from e
 
     def is_valid(self) -> bool:
         """Check if the current token is valid.

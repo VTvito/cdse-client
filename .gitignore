@@ -119,6 +119,9 @@ venv.bak/
 .dmypy.json
 dmypy.json
 
+# ruff
+.ruff_cache/
+
 # Pyre type checker
 .pyre/
 
@@ -146,3 +149,15 @@ data/
 *.SAFE/
 credentials.json
 .env.local
+
+# Notebooks output
+notebooks/data/
+notebooks/.ipynb_checkpoints/
+notebooks/outputs/
+
+# Test artifacts
+quick_test.py
+
+# Features in development (not in release)
+src/cdse/processing.py
+tests/test_processing.py

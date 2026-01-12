@@ -1,6 +1,6 @@
 # Contributing to cdse-client
 
-First off, thank you for considering contributing to cdse-client! 🎉
+Thanks for contributing!
 
 ## How Can I Contribute?
 
@@ -29,7 +29,7 @@ Enhancement suggestions are tracked as GitHub issues. When creating an enhanceme
 2. Create a feature branch (`git checkout -b feature/amazing-feature`)
 3. Make your changes
 4. Run tests (`pytest`)
-5. Run linters (`black src tests` and `ruff check src tests`)
+5. Run formatter/linter (`ruff format src tests` and `ruff check src tests`)
 6. Commit your changes (`git commit -m 'Add amazing feature'`)
 7. Push to the branch (`git push origin feature/amazing-feature`)
 8. Open a Pull Request
@@ -42,8 +42,8 @@ git clone https://github.com/YOUR_USERNAME/cdse-client.git
 cd cdse-client
 
 # Create virtual environment
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
+python -m venv .venv
+source .venv/bin/activate  # Windows (PowerShell): .\.venv\Scripts\Activate.ps1
 
 # Install with dev dependencies
 pip install -e ".[dev]"
@@ -52,14 +52,16 @@ pip install -e ".[dev]"
 pytest
 
 # Format code
-black src tests
+ruff format src tests
 ruff check src tests --fix
+
+# Optional: type checking
+mypy src/cdse
 ```
 
 ## Code Style
 
-- We use [Black](https://black.readthedocs.io/) for code formatting
-- We use [Ruff](https://docs.astral.sh/ruff/) for linting
+- We use [Ruff](https://docs.astral.sh/ruff/) for formatting and linting
 - We use [mypy](https://mypy.readthedocs.io/) for type checking
 - All public functions must have docstrings (Google style)
 - All new features must have tests

@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Optional
 
 
 @dataclass
@@ -30,14 +30,14 @@ class Product:
     collection: str
     datetime: Optional[datetime]
     cloud_cover: Optional[float]
-    geometry: Dict[str, Any]
-    bbox: List[float]
-    properties: Dict[str, Any]
-    assets: Dict[str, Any] = field(default_factory=dict)
-    raw: Dict[str, Any] = field(default_factory=dict, repr=False)
+    geometry: dict[str, Any]
+    bbox: list[float]
+    properties: dict[str, Any]
+    assets: dict[str, Any] = field(default_factory=dict)
+    raw: dict[str, Any] = field(default_factory=dict, repr=False)
 
     @classmethod
-    def from_stac_feature(cls, feature: Dict[str, Any]) -> "Product":
+    def from_stac_feature(cls, feature: dict[str, Any]) -> "Product":
         """Create a Product from a STAC feature dictionary.
 
         Args:
@@ -60,12 +60,7 @@ class Product:
                 pass
 
         # Get product name - try multiple fields
-        name = (
-            feature.get("id")
-            or props.get("id")
-            or props.get("title")
-            or "unknown"
-        )
+        name = feature.get("id") or props.get("id") or props.get("title") or "unknown"
 
         return cls(
             id=feature.get("id", ""),
@@ -140,7 +135,7 @@ class Product:
             f"cloud_cover={self.cloud_cover})"
         )
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary.
 
         Returns:

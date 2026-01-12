@@ -34,7 +34,7 @@ class TestCDSEClient:
 
     def test_init(self, mock_auth):
         """Test client initialization."""
-        client = CDSEClient("id", "secret")
+        CDSEClient("id", "secret")
 
         mock_auth.assert_called_once_with("id", "secret")
 

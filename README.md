@@ -4,49 +4,47 @@
 [![Python](https://img.shields.io/pypi/pyversions/cdse-client.svg)](https://pypi.org/project/cdse-client/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-**Python client for Copernicus Data Space Ecosystem (CDSE)** - A modern, drop-in replacement for the deprecated `sentinelsat` library.
+**Python client for Copernicus Data Space Ecosystem (CDSE)** — a modern replacement for `sentinelsat`.
 
-## 🚀 Why cdse-client?
+Requires Python >= 3.9.
 
-The European Space Agency (ESA) has migrated from the old Copernicus Open Access Hub to the new **Copernicus Data Space Ecosystem (CDSE)**. The popular `sentinelsat` library no longer works with the new infrastructure.
-
-`cdse-client` provides:
-- ✅ **OAuth2 authentication** for CDSE
-- ✅ **STAC API catalog search** for finding products
-- ✅ **OData API integration** for downloads
-- ✅ **Simple, pythonic API** similar to sentinelsat
-- ✅ **Progress bars** for downloads
-- ✅ **Async support** (coming soon)
-
-## 📦 Installation
+## Installation
 
 ```bash
-pip install cdse-client
+pip install cdse-client              # Core
+pip install cdse-client[geo]         # + shapely, geopandas, geopy
+pip install cdse-client[dataframe]   # + pandas
+pip install cdse-client[processing]  # + rasterio, numpy, pillow, matplotlib, shapely
+pip install cdse-client[async]       # + aiohttp, aiofiles
+pip install cdse-client[all]         # Everything
 ```
 
-For GeoJSON/Shapely support:
-```bash
-pip install cdse-client[geo]
-```
-
-## 🔑 Getting Credentials
+## Setup
 
 1. Register at [Copernicus Data Space](https://dataspace.copernicus.eu/)
-2. Go to your [Account Settings](https://dataspace.copernicus.eu/profile)
-3. Create OAuth2 credentials (Client ID and Client Secret)
+2. Create OAuth2 credentials in [Account Settings](https://dataspace.copernicus.eu/profile)
 
-## 🎯 Quick Start
+Environment variables:
+
+- macOS/Linux (bash/zsh)
+    ```bash
+    export CDSE_CLIENT_ID="your-client-id"
+    export CDSE_CLIENT_SECRET="your-client-secret"
+    ```
+- Windows (PowerShell)
+    ```powershell
+    $env:CDSE_CLIENT_ID = "your-client-id"
+    $env:CDSE_CLIENT_SECRET = "your-client-secret"
+    ```
+
+## Quick start
 
 ```python
 from cdse import CDSEClient
 
-# Initialize client with your credentials
-client = CDSEClient(
-    client_id="your-client-id",
-    client_secret="your-client-secret"
-)
+client = CDSEClient()  # Uses environment variables
 
-# Search for Sentinel-2 products
+# Search Sentinel-2 products
 products = client.search(
     bbox=[9.0, 45.0, 9.5, 45.5],  # Milan area
     start_date="2024-01-01",
@@ -56,182 +54,178 @@ products = client.search(
     limit=5
 )
 
-print(f"Found {len(products)} products")
-
-# Download products
+# Download
 for product in products:
-    print(f"Downloading: {product.id}")
-    client.download(product, output_dir="./downloads")
+    client.download(product)
 ```
 
-## 📖 API Reference
-
-### CDSEClient
-
-Main client class for interacting with CDSE.
+## Search methods
 
 ```python
-from cdse import CDSEClient
+# By bounding box
+products = client.search(bbox=[lon_min, lat_min, lon_max, lat_max], ...)
 
-client = CDSEClient(
-    client_id: str,          # OAuth2 client ID
-    client_secret: str,      # OAuth2 client secret
-    output_dir: str = "."    # Default download directory
+# By geographic point
+products = client.search_by_point(lon=9.19, lat=45.46, buffer_km=10, ...)
+
+# By city name (requires [geo])
+products = client.search_by_city(city_name="Milano, Italia", ...)
+
+# By product name (OData catalogue)
+products = client.search_by_name("S2A_MSIL2A_20240115T102351...", exact=True)
+
+# By UUID (OData catalogue)
+product = client.search_by_id("a1b2c3d4-e5f6...")
+```
+
+Note: `search()` returns STAC results; product identifiers there are not guaranteed to be OData UUIDs. If you need a UUID, use `search_by_name(..., exact=True)`.
+
+**Collections**: `sentinel-1-grd`, `sentinel-2-l1c`, `sentinel-2-l2a`, `sentinel-3-olci`, `sentinel-3-slstr`, `sentinel-5p-l2`
+
+## Download methods
+
+```python
+# Single product
+client.download(product, output_dir="./downloads")
+
+# Multiple products (parallel)
+client.download_all(products, parallel=True, max_workers=4)
+
+# With checksum verification
+client.download_with_checksum(product)
+
+# Quicklook preview only
+client.download_quicklook(product)
+client.download_all_quicklooks(products)
+```
+
+## Data export (sentinelsat compatible)
+
+```python
+# DataFrame for sorting/filtering
+df = client.to_dataframe(products)
+df.sort_values('cloud_cover').to_csv("products.csv")
+
+# GeoJSON footprints
+geojson = client.to_geojson(products)
+
+# GeoDataFrame for spatial analysis (requires [geo])
+gdf = client.to_geodataframe(products)
+gdf.plot()
+
+# Total size
+size_gb = client.get_products_size(products)
+```
+
+## Geometry utilities
+
+```python
+from cdse import read_geojson, geojson_to_wkt, bbox_to_geojson
+
+geojson = read_geojson("area.geojson")
+wkt = geojson_to_wkt(geojson)
+geojson = bbox_to_geojson([9.0, 45.0, 9.5, 45.5])
+```
+
+## Processing
+
+```bash
+pip install cdse-client[processing]
+```
+
+```python
+from cdse.processing import calculate_ndvi, crop_and_stack, preview_product
+
+# Extract bands, crop to AOI, stack into GeoTIFF
+result = crop_and_stack(
+    safe_path="S2A_MSIL2A_20240115.zip",
+    bbox=[9.15, 45.45, 9.25, 45.55],
+    bands=["B04", "B03", "B02", "B08"],
+    resolution=10
 )
+
+# Calculate NDVI
+ndvi = calculate_ndvi(nir_path="B08.tif", red_path="B04.tif")
+
+# Preview in Jupyter
+preview_product(safe_path="...", bbox=[...], display=True)
 ```
 
-### Search Methods
+## Async support
 
-#### `search()`
-
-Search for products in the CDSE catalog.
+```bash
+pip install cdse-client[async]
+```
 
 ```python
-products = client.search(
-    bbox: List[float],           # [min_lon, min_lat, max_lon, max_lat]
-    start_date: str,             # Start date (YYYY-MM-DD)
-    end_date: str,               # End date (YYYY-MM-DD)
-    collection: str = "sentinel-2-l2a",  # Collection name
-    cloud_cover_max: float = 100,        # Max cloud cover %
-    limit: int = 10              # Max results
-)
+import asyncio
+from cdse import CDSEClientAsync
+
+async def main():
+    async with CDSEClientAsync(client_id, client_secret) as client:
+        products = await client.search(...)
+        paths = await client.download_all(products)
+
+asyncio.run(main())
 ```
 
-**Available collections:**
-- `sentinel-1-grd` - Sentinel-1 GRD
-- `sentinel-2-l1c` - Sentinel-2 L1C
-- `sentinel-2-l2a` - Sentinel-2 L2A (atmospheric corrected)
-- `sentinel-3-olci` - Sentinel-3 OLCI
-- `sentinel-5p-l2` - Sentinel-5P Level-2
+## CLI
 
-#### `search_by_point()`
+```bash
+# Search
+cdse search --bbox 9.0,45.0,9.5,45.5 -s 2024-01-01 -e 2024-01-31 -c 20 -l 5
 
-Search by geographic point.
+# Download by name/UUID
+cdse download --name S2A_MSIL2A_20240115T102351...
+cdse download --uuid a1b2c3d4-... [--quicklook] [--checksum]
 
-```python
-products = client.search_by_point(
-    lon: float,                  # Longitude
-    lat: float,                  # Latitude
-    buffer_km: float = 10,       # Search radius in km
-    **kwargs                     # Other search params
-)
+# List collections
+cdse collections
+
+# Help
+cdse --help
 ```
 
-#### `search_by_name()`
-
-Search by product name pattern.
-
-```python
-products = client.search_by_name(
-    name: str,                   # Product name pattern
-    collection: str = None       # Optional collection filter
-)
-```
-
-### Download Methods
-
-#### `download()`
-
-Download a single product.
-
-```python
-path = client.download(
-    product: Product,            # Product to download
-    output_dir: str = None,      # Output directory
-    filename: str = None         # Custom filename
-)
-```
-
-#### `download_all()`
-
-Download multiple products.
-
-```python
-paths = client.download_all(
-    products: List[Product],     # Products to download
-    output_dir: str = None,      # Output directory
-    max_concurrent: int = 2      # Max parallel downloads
-)
-```
-
-### Product Class
-
-```python
-product.id          # Product ID
-product.name        # Product name
-product.date        # Acquisition date
-product.cloud_cover # Cloud cover percentage
-product.size        # File size in bytes
-product.geometry    # GeoJSON geometry
-product.properties  # All metadata
-```
-
-## 🔄 Migration from sentinelsat
+## Migration from sentinelsat
 
 | sentinelsat | cdse-client |
 |-------------|-------------|
 | `SentinelAPI(user, password)` | `CDSEClient(client_id, client_secret)` |
-| `api.query(area, date, ...)` | `client.search(bbox, start_date, end_date, ...)` |
+| `api.query(area, date, ...)` | `client.search(bbox, start_date, ...)` |
 | `api.download(uuid)` | `client.download(product)` |
 | `api.download_all(products)` | `client.download_all(products)` |
+| `api.download_quicklook(uuid)` | `client.download_quicklook(product)` |
+| `api.to_dataframe(products)` | `client.to_dataframe(products)` |
+| `api.to_geojson(products)` | `client.to_geojson(products)` |
+| `read_geojson(path)` | `read_geojson(path)` |
+| `geojson_to_wkt(geojson)` | `geojson_to_wkt(geojson)` |
 
-## 🌍 Environment Variables
+## Resources
 
-You can set credentials via environment variables:
-
-```bash
-export CDSE_CLIENT_ID="your-client-id"
-export CDSE_CLIENT_SECRET="your-client-secret"
-```
-
-```python
-from cdse import CDSEClient
-
-# Will use environment variables
-client = CDSEClient()
-```
-
-## 🛠️ CLI Usage
-
-```bash
-# Search products
-cdse search --bbox 9.0,45.0,9.5,45.5 --start 2024-01-01 --end 2024-01-31
-
-# Download product
-cdse download <product-id> --output ./downloads
-
-# List collections
-cdse collections
-```
-
-## 🧪 Development
-
-```bash
-# Clone repository
-git clone https://github.com/VTvito/cdse-client.git
-cd cdse-client
-
-# Install with dev dependencies
-pip install -e ".[dev]"
-
-# Run tests
-pytest
-
-# Format code
-black src tests
-ruff check src tests
-```
-
-## 📄 License
-
-MIT License - see [LICENSE](LICENSE) for details.
-
-## 🤝 Contributing
-
-Contributions are welcome! Please read our [Contributing Guide](CONTRIBUTING.md) first.
-
-## 📚 Resources
-
-- [Copernicus Data Space Ecosystem](https://dataspace.copernicus.eu/)
+- [Copernicus Data Space](https://dataspace.copernicus.eu/)
 - [CDSE API Documentation](https://documentation.dataspace.copernicus.eu/)
-- [STAC API Specification](https://stacspec.org/)
+
+## Documentation (MkDocs)
+
+Build and preview locally:
+
+```bash
+pip install -e ".[docs]"
+mkdocs serve
+```
+
+## Disclaimer
+
+This is an **unofficial** client library and is not affiliated with, endorsed by, or connected to ESA, the European Commission, or the Copernicus Programme.
+
+Copernicus Data Space Ecosystem and Sentinel data are provided by ESA and the European Commission. Users must:
+
+1. Register at [dataspace.copernicus.eu](https://dataspace.copernicus.eu/)
+2. Comply with the [Terms and Conditions](https://dataspace.copernicus.eu/terms-and-conditions)
+3. Respect [API quotas and fair usage policies](https://documentation.dataspace.copernicus.eu/Quotas.html)
+
+Sentinel data is available under a **free, full, and open** data policy for any use, including commercial. See the [Sentinel Data Legal Notice](https://sentinels.copernicus.eu/documents/247904/690755/Sentinel_Data_Legal_Notice).
+
+## License
+
+MIT License - see [LICENSE](LICENSE)

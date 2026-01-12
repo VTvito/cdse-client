@@ -1,7 +1,7 @@
 """Catalog search for Copernicus Data Space Ecosystem."""
 
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Optional
 
 import requests
 
@@ -50,14 +50,14 @@ class Catalog:
 
     def search(
         self,
-        bbox: List[float],
+        bbox: list[float],
         start_date: str,
         end_date: str,
         collection: str = "sentinel-2-l2a",
         cloud_cover_max: float = 100.0,
         limit: int = 10,
         **kwargs: Any,
-    ) -> List[Product]:
+    ) -> list[Product]:
         """Search for products in the CDSE catalog.
 
         Args:
@@ -120,9 +120,9 @@ class Catalog:
         except requests.exceptions.HTTPError as e:
             raise CatalogError(
                 f"Catalog search failed: {e.response.status_code} - {e.response.text}"
-            )
+            ) from e
         except Exception as e:
-            raise CatalogError(f"Catalog search error: {e}")
+            raise CatalogError(f"Catalog search error: {e}") from e
 
     def search_by_point(
         self,
@@ -130,7 +130,7 @@ class Catalog:
         lat: float,
         buffer_km: float = 10.0,
         **kwargs: Any,
-    ) -> List[Product]:
+    ) -> list[Product]:
         """Search for products by geographic point.
 
         Args:
@@ -155,7 +155,7 @@ class Catalog:
 
         return self.search(bbox=bbox, **kwargs)
 
-    def get_collections(self) -> Dict[str, str]:
+    def get_collections(self) -> dict[str, str]:
         """Get available collections.
 
         Returns:
@@ -164,8 +164,8 @@ class Catalog:
         return self.COLLECTIONS.copy()
 
     def _filter_by_cloud_cover(
-        self, features: List[Dict[str, Any]], max_cloud: float
-    ) -> List[Dict[str, Any]]:
+        self, features: list[dict[str, Any]], max_cloud: float
+    ) -> list[dict[str, Any]]:
         """Filter features by cloud cover percentage.
 
         Args:
@@ -184,10 +184,10 @@ class Catalog:
 
     def _filter_by_center_point(
         self,
-        features: List[Dict[str, Any]],
+        features: list[dict[str, Any]],
         center_lon: float,
         center_lat: float,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """Filter features that contain the center point.
 
         Args:
@@ -208,9 +208,7 @@ class Catalog:
                 filtered.append(f)
         return filtered
 
-    def _point_in_geometry(
-        self, lon: float, lat: float, geometry: Dict[str, Any]
-    ) -> bool:
+    def _point_in_geometry(self, lon: float, lat: float, geometry: dict[str, Any]) -> bool:
         """Check if a point is inside a geometry (simplified bbox check).
 
         Args:
@@ -244,7 +242,7 @@ class Catalog:
         except (IndexError, TypeError):
             return True
 
-    def _validate_bbox(self, bbox: List[float]) -> None:
+    def _validate_bbox(self, bbox: list[float]) -> None:
         """Validate bounding box format and values.
 
         Args:
@@ -302,7 +300,7 @@ class Catalog:
             raise ValidationError(
                 f"Invalid date format. Use YYYY-MM-DD: {e}",
                 field="date",
-            )
+            ) from e
 
         if start >= end:
             raise ValidationError(
@@ -324,3 +322,134 @@ class Catalog:
                 f"cloud_cover must be between 0 and 100, got {cloud_cover}",
                 field="cloud_cover",
             )
+
+    def search_by_name(
+        self,
+        name: str,
+        exact: bool = True,
+    ) -> Optional[Product]:
+        """Search for a product by name.
+
+        Args:
+            name: Product name (e.g., S2A_MSIL2A_20240115...)
+            exact: If True, require exact match. If False, use prefix match.
+
+        Returns:
+            Product if found, None otherwise
+
+        Raises:
+            CatalogError: If API request fails
+        """
+        # Use OData catalog to search by name
+        odata_url = "https://catalogue.dataspace.copernicus.eu/odata/v1/Products"
+
+        filter_query = f"Name eq '{name}'" if exact else f"startswith(Name, '{name}')"
+
+        try:
+            response = self.session.get(
+                odata_url,
+                params={"$filter": filter_query, "$top": 1},
+            )
+            response.raise_for_status()
+
+            data = response.json()
+            items = data.get("value", [])
+
+            if not items:
+                return None
+
+            # Convert OData result to Product
+            item = items[0]
+            return self._odata_to_product(item)
+
+        except requests.exceptions.HTTPError as e:
+            raise CatalogError(
+                f"Product search failed: {e.response.status_code} - {e.response.text}"
+            ) from e
+        except Exception as e:
+            raise CatalogError(f"Product search error: {e}") from e
+
+    def search_by_id(
+        self,
+        product_id: str,
+    ) -> Optional[Product]:
+        """Search for a product by UUID.
+
+        Args:
+            product_id: Product UUID
+
+        Returns:
+            Product if found, None otherwise
+
+        Raises:
+            CatalogError: If API request fails
+        """
+        odata_url = f"https://catalogue.dataspace.copernicus.eu/odata/v1/Products({product_id})"
+
+        try:
+            response = self.session.get(odata_url)
+
+            if response.status_code == 404:
+                return None
+
+            response.raise_for_status()
+
+            item = response.json()
+            return self._odata_to_product(item)
+
+        except requests.exceptions.HTTPError as e:
+            if e.response.status_code == 404:
+                return None
+            raise CatalogError(
+                f"Product lookup failed: {e.response.status_code} - {e.response.text}"
+            ) from e
+        except Exception as e:
+            raise CatalogError(f"Product lookup error: {e}") from e
+
+    def _odata_to_product(self, item: dict[str, Any]) -> Product:
+        """Convert OData item to Product.
+
+        Args:
+            item: OData product item
+
+        Returns:
+            Product instance
+        """
+        # Parse datetime
+        dt = None
+        dt_str = item.get("ContentDate", {}).get("Start") or item.get("ModificationDate")
+        if dt_str:
+            try:
+                dt_str = dt_str.replace("Z", "+00:00")
+                dt = datetime.fromisoformat(dt_str)
+            except ValueError:
+                pass
+
+        # Parse geometry from GeoFootprint if available
+        geometry = {}
+        geo_str = item.get("GeoFootprint")
+        if geo_str:
+            try:
+                import json
+
+                geometry = json.loads(geo_str)
+            except (json.JSONDecodeError, TypeError):
+                pass
+
+        return Product(
+            id=item.get("Id", ""),
+            name=item.get("Name", ""),
+            collection=item.get("Collection", {}).get("Name", ""),
+            datetime=dt,
+            cloud_cover=item.get("CloudCover"),
+            geometry=geometry,
+            bbox=[],
+            properties={
+                "odata_id": item.get("Id"),
+                "size": item.get("ContentLength"),
+                "checksum": item.get("Checksum", []),
+                "online": item.get("Online", True),
+            },
+            assets={},
+            raw=item,
+        )

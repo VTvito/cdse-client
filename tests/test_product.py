@@ -1,7 +1,5 @@
 """Tests for Product class."""
 
-from datetime import datetime
-
 import pytest
 
 from cdse.product import Product

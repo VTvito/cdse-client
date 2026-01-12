@@ -2,7 +2,7 @@
 
 import tempfile
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 import requests
@@ -43,17 +43,13 @@ class TestDownloader:
             geometry={},
             bbox=[9.0, 45.0, 9.5, 45.5],
             properties={},
-            assets={
-                "download": {
-                    "href": "https://example.com/download/product.zip"
-                }
-            },
+            assets={"download": {"href": "https://example.com/download/product.zip"}},
         )
 
     def test_init_creates_output_dir(self, mock_session, temp_dir):
         """Test that init creates output directory."""
         output_path = Path(temp_dir) / "downloads"
-        downloader = Downloader(mock_session, output_dir=str(output_path))
+        Downloader(mock_session, output_dir=str(output_path))
 
         assert output_path.exists()
 
@@ -71,9 +67,7 @@ class TestDownloader:
         assert path.exists()
         assert path.name == "S2A_MSIL2A_20240115_T32TNR.zip"
 
-    def test_download_skip_existing(
-        self, downloader, mock_session, sample_product, temp_dir
-    ):
+    def test_download_skip_existing(self, downloader, mock_session, sample_product, temp_dir):
         """Test that existing files are skipped."""
         # Create existing file
         existing_file = Path(temp_dir) / "S2A_MSIL2A_20240115_T32TNR.zip"
@@ -90,9 +84,7 @@ class TestDownloader:
         mock_response = MagicMock()
         mock_response.status_code = 404
         mock_response.text = "Not Found"
-        mock_response.raise_for_status.side_effect = requests.HTTPError(
-            response=mock_response
-        )
+        mock_response.raise_for_status.side_effect = requests.HTTPError(response=mock_response)
         mock_session.get.return_value = mock_response
 
         with pytest.raises(DownloadError) as exc_info:
@@ -178,9 +170,7 @@ class TestDownloader:
 
         # Mock OData response
         mock_response = MagicMock()
-        mock_response.json.return_value = {
-            "value": [{"Id": "uuid-12345"}]
-        }
+        mock_response.json.return_value = {"value": [{"Id": "uuid-12345"}]}
         mock_response.raise_for_status = MagicMock()
         mock_session.get.return_value = mock_response
 

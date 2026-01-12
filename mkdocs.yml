@@ -1,0 +1,69 @@
+site_name: cdse-client
+site_description: Python client for Copernicus Data Space Ecosystem (CDSE)
+site_url: https://vtvito.github.io/cdse-client/
+repo_url: https://github.com/VTvito/cdse-client
+repo_name: VTvito/cdse-client
+
+theme:
+  name: material
+  features:
+    - navigation.instant
+    - navigation.tracking
+    - navigation.sections
+    - navigation.indexes
+    - content.code.copy
+  palette:
+    - scheme: default
+      primary: indigo
+      accent: indigo
+
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.tabbed:
+      alternate_style: true
+
+plugins:
+  - search
+  - mkdocstrings:
+      default_handler: python
+      handlers:
+        python:
+          options:
+            docstring_style: google
+            show_source: false
+            show_signature_annotations: true
+            signature_crossrefs: true
+            members_order: source
+
+nav:
+  - Home: index.md
+  - Getting started: getting-started.md
+  - User guide:
+      - user-guide/search.md
+      - user-guide/download.md
+      - user-guide/export.md
+      - user-guide/cli.md
+      - user-guide/processing.md
+      - user-guide/async.md
+  - Migration: migration.md
+  - FAQ: faq.md
+  - Release: release.md
+  - API reference:
+      - reference/client.md
+      - reference/catalog.md
+      - reference/downloader.md
+      - reference/auth.md
+      - reference/product.md
+      - reference/converters.md
+      - reference/geometry.md
+      - reference/geocoding.md
+      - reference/processing.md
+      - reference/async_client.md
+      - reference/exceptions.md
+      - reference/cli.md

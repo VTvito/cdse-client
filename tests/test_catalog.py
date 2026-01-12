@@ -1,6 +1,6 @@
 """Tests for Catalog class."""
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 import requests
@@ -114,9 +114,7 @@ class TestCatalog:
         mock_response = MagicMock()
         mock_response.status_code = 500
         mock_response.text = "Internal Server Error"
-        mock_response.raise_for_status.side_effect = requests.HTTPError(
-            response=mock_response
-        )
+        mock_response.raise_for_status.side_effect = requests.HTTPError(response=mock_response)
         mock_session.post.return_value = mock_response
 
         with pytest.raises(CatalogError) as exc_info:
@@ -184,7 +182,7 @@ class TestCatalog:
         mock_response.raise_for_status = MagicMock()
         mock_session.post.return_value = mock_response
 
-        products = catalog.search_by_point(
+        catalog.search_by_point(
             lon=9.25,
             lat=45.25,
             buffer_km=10,

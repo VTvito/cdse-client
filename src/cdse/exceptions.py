@@ -1,5 +1,7 @@
 """Custom exceptions for CDSE Client."""
 
+from typing import Optional
+
 
 class CDSEError(Exception):
     """Base exception for CDSE Client errors."""
@@ -26,7 +28,7 @@ class CatalogError(CDSEError):
 class DownloadError(CDSEError):
     """Raised when download fails."""
 
-    def __init__(self, message: str = "Download failed", product_id: str = None):
+    def __init__(self, message: str = "Download failed", product_id: Optional[str] = None):
         self.message = message
         self.product_id = product_id
         super().__init__(self.message)
@@ -35,7 +37,7 @@ class DownloadError(CDSEError):
 class ValidationError(CDSEError):
     """Raised when input validation fails."""
 
-    def __init__(self, message: str = "Validation failed", field: str = None):
+    def __init__(self, message: str = "Validation failed", field: Optional[str] = None):
         self.message = message
         self.field = field
         super().__init__(self.message)
