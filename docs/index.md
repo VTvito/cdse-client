@@ -2,6 +2,9 @@
 
 Python client for **Copernicus Data Space Ecosystem (CDSE)** — a modern replacement for `sentinelsat`.
 
+!!! info "Latest Release"
+    **v0.4.0** (2026-02-12) — Production hardening with auto-refresh tokens, resilient retries, and logging. [Release notes →](releases.md)
+
 **Highlights**
 - STAC search (`search`, `search_by_point`, collections)
 - OData catalogue helpers (`search_by_name`, `search_by_id`)

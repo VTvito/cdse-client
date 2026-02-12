@@ -16,6 +16,8 @@ Highlights:
 - Download products via OData/Zipper (with progress bars)
 - Optional extras for geocoding/GeoPandas, async downloads, and raster processing
 - Type hints (PEP 561 / `py.typed`)
+- **NEW**: Auto-refresh Bearer tokens, resilient retries, production logging
+- **NEW**: Explicit timeouts on all HTTP requests
 
 Compatibility: Python >= 3.9
 

@@ -54,7 +54,48 @@ path = client.download(products[0], output_dir="./downloads")
 print(path)
 ```
 
-## 5) Common pitfalls
+## 5) Monitoring (optional)
+
+v0.4.0+ includes structured logging for production deployments:
+
+```python
+import logging
+
+# Configure logging to see token refresh, retries, and timeouts
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+
+client = CDSEClient()
+client.search(...)  # Now logs all operations
+```
+
+Output example:
+```
+2026-02-12 10:15:23 - cdse.auth - DEBUG - Bearer token expired, refreshing
+2026-02-12 10:15:25 - cdse.downloader - INFO - Downloaded: S2A_MSIL2A_20260212.zip (245.3 MB)
+```
+
+## 6) Advanced: Retry Configuration
+
+For long-running or unreliable networks:
+
+```python
+from cdse import CDSEClient
+
+client = CDSEClient()
+downloader = client.downloader
+
+# Customize retry policy (v0.4.0+)
+downloader.max_retries = 5      # More retries (default: 3)
+downloader.timeout = 120         # Longer timeout in seconds (default: 60)
+
+# Now retries up to 5 times on 429/502/503/504
+path = downloader.download(product)
+```
+
+## 7) Common pitfalls
 
 ### STAC results vs OData UUID
 

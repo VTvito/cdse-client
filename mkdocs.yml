@@ -43,6 +43,7 @@ plugins:
 
 nav:
   - Home: index.md
+  - Releases: releases.md
   - Getting started: getting-started.md
   - User guide:
       - user-guide/search.md
