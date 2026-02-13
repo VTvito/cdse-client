@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Documentation: fixed broken link in `docs/releases.md` pointing to `../CHANGELOG.md` (outside MkDocs docs tree) by linking to repository changelog URL.
+- Documentation: added stable anchors for release-note cross-links (`#resilience` in `docs/faq.md`, `#monitoring` in `docs/getting-started.md`) to avoid strict-mode anchor drift.
+
+### Removed
+
+- Removed redundant `RELEASE_v0.4.0.md` document from repository root to reduce duplicated release-note overhead.
+
 ## [0.4.0] - 2026-02-12
 
 ### Fixed

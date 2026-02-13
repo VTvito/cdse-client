@@ -20,6 +20,7 @@ Live geocoding depends on Nominatim (network + rate limits). You can:
 
 If `rasterio` fails to install, try Python 3.11/3.12 or conda-forge.
 
+<a id="resilience"></a>
 ## Downloads timeout or fail (v0.4.0+)
 
 By default, downloads have a 60-second timeout and retry 3 times on transient errors (429, 502, 503, 504).

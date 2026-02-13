@@ -138,4 +138,4 @@ pip install 'cdse-client[all]==0.4.0'
 
 ---
 
-**For detailed changes**, see [CHANGELOG.md](../CHANGELOG.md) and [Release commits](https://github.com/VTvito/cdse-client/compare/v0.3.3...v0.4.0).
+**For detailed changes**, see [CHANGELOG](https://github.com/VTvito/cdse-client/blob/main/CHANGELOG.md) and [Release commits](https://github.com/VTvito/cdse-client/compare/v0.3.3...v0.4.0).

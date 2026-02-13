@@ -54,6 +54,7 @@ path = client.download(products[0], output_dir="./downloads")
 print(path)
 ```
 
+<a id="monitoring"></a>
 ## 5) Monitoring (optional)
 
 v0.4.0+ includes structured logging for production deployments:
