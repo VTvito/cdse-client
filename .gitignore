@@ -150,10 +150,5 @@ data/
 credentials.json
 .env.local
 
-# Notebooks output
-notebooks/data/
-notebooks/.ipynb_checkpoints/
-notebooks/outputs/
-
 # Test artifacts
 quick_test.py

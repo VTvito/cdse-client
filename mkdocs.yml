@@ -54,7 +54,6 @@ nav:
       - user-guide/async.md
   - Migration: migration.md
   - FAQ: faq.md
-  - Release: release.md
   - API reference:
       - reference/client.md
       - reference/catalog.md

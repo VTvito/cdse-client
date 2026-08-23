@@ -1,9 +1,9 @@
 # cdse-client
 
-Python client for **Copernicus Data Space Ecosystem (CDSE)** — a modern replacement for `sentinelsat`.
+Search and download Copernicus Sentinel data (Sentinel-1, 2, 3, 5P) from the
+**Copernicus Data Space Ecosystem** in a few lines of Python.
 
-!!! info "Latest Release"
-    **v0.4.0** (2026-02-12) — Production hardening with auto-refresh tokens, resilient retries, and logging. [Release notes →](releases.md)
+See the [release notes](releases.md) for what changed in the current version.
 
 **Highlights**
 - STAC search (`search`, `search_by_point`, collections)

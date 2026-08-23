@@ -7,14 +7,58 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-08-23
+
+First stable release. The public API has been unchanged since 0.3.0 and there are
+**no breaking changes** relative to 0.4.0 — the version number reflects that the API is
+now considered stable and covered by semantic versioning guarantees.
+
+### Changed
+
+- **Project positioning**: the README, the PyPI summary and the documentation landing page
+  now lead with what the library does (search and download Sentinel data from CDSE) rather
+  than with a comparison against `sentinelsat`, which has been moved to a "Migrating from
+  sentinelsat" section.
+- **README reduced from 352 to ~125 lines**: the API catalogue sections (search methods,
+  download methods, data export, geometry utilities, processing, async) duplicated the
+  documentation site and have been replaced by a compact overview plus direct links.
+- **PyPI metadata**: `description` corrected — the previous "Drop-in replacement for
+  sentinelsat" was inaccurate (`SentinelAPI(user, password)` and
+  `CDSEClient(client_id, client_secret)` are not interchangeable). Keywords expanded with
+  the per-mission and geospatial terms; added `Environment :: Console`,
+  `Programming Language :: Python :: 3 :: Only` and `Typing :: Typed` classifiers.
+- **`Development Status`** raised from `4 - Beta` to `5 - Production/Stable`.
+- **Version is now single-sourced**: `pyproject.toml` declares `dynamic = ["version"]` and
+  reads `cdse.__version__`, removing the manual two-file sync that the release checklist
+  previously required.
+
 ### Fixed
 
-- Documentation: fixed broken link in `docs/releases.md` pointing to `../CHANGELOG.md` (outside MkDocs docs tree) by linking to repository changelog URL.
-- Documentation: added stable anchors for release-note cross-links (`#resilience` in `docs/faq.md`, `#monitoring` in `docs/getting-started.md`) to avoid strict-mode anchor drift.
+- Documentation: `calculate_ndvi` example in `docs/user-guide/processing.md` was missing the
+  required `output_path` argument and raised `TypeError` as written.
+- README: removed links to GitHub Discussions, which is not enabled on the repository.
+- README: removed the `.env` setup option, which implied the library loads `.env` files
+  itself — it does not; only `CDSE_CLIENT_ID` and `CDSE_CLIENT_SECRET` environment variables
+  are read.
+- Documentation: fixed broken link in `docs/releases.md` pointing to `../CHANGELOG.md`
+  (outside MkDocs docs tree) by linking to repository changelog URL.
+- Documentation: added stable anchors for release-note cross-links (`#resilience` in
+  `docs/faq.md`, `#monitoring` in `docs/getting-started.md`) to avoid strict-mode anchor
+  drift.
 
 ### Removed
 
-- Removed redundant `RELEASE_v0.4.0.md` document from repository root to reduce duplicated release-note overhead.
+- **`notebooks/test_cdse_client.ipynb`**: a 2.7 MB end-to-end test notebook with committed
+  outputs, still titled "v0.3.0" and referenced from nowhere. It made up 92% of the tracked
+  bytes in the repository, causing GitHub to classify the project as a Jupyter Notebook
+  repository rather than a Python library. Its content is covered by `docs/user-guide/` and
+  the runnable scripts in `examples/`.
+- **`.readthedocs.yml`**: no Read the Docs project exists for this package
+  (`cdse-client.readthedocs.io` returns 404); documentation is published to GitHub Pages.
+- Maintainer-facing `release.md` removed from the documentation navigation (the file
+  remains in the repository).
+- Removed redundant `RELEASE_v0.4.0.md` document from repository root to reduce duplicated
+  release-note overhead.
 
 ## [0.4.0] - 2026-02-12
 

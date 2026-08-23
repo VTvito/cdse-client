@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "cdse-client"
-version = "0.4.0"
-description = "Python client for Copernicus Data Space Ecosystem (CDSE) - Drop-in replacement for sentinelsat"
+dynamic = ["version"]
+description = "Search and download Sentinel-1/2/3/5P satellite data from the Copernicus Data Space Ecosystem"
 readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE"]
@@ -18,19 +18,30 @@ maintainers = [
 keywords = [
     "copernicus",
     "sentinel",
+    "sentinel-1",
+    "sentinel-2",
+    "sentinel-3",
+    "sentinel-5p",
     "satellite",
+    "satellite-imagery",
     "remote-sensing",
     "earth-observation",
+    "geospatial",
+    "gis",
     "CDSE",
     "STAC",
+    "odata",
+    "download",
     "sentinelsat"
 ]
 classifiers = [
-    "Development Status :: 4 - Beta",
+    "Development Status :: 5 - Production/Stable",
+    "Environment :: Console",
     "Intended Audience :: Developers",
     "Intended Audience :: Science/Research",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
     "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
@@ -38,6 +49,7 @@ classifiers = [
     "Programming Language :: Python :: 3.13",
     "Topic :: Scientific/Engineering :: GIS",
     "Topic :: Scientific/Engineering :: Image Processing",
+    "Typing :: Typed",
 ]
 requires-python = ">=3.9"
 dependencies = [
@@ -114,6 +126,9 @@ Changelog = "https://github.com/VTvito/cdse-client/blob/main/CHANGELOG.md"
 
 [project.scripts]
 cdse = "cdse.cli:main"
+
+[tool.setuptools.dynamic]
+version = {attr = "cdse.__version__"}
 
 [tool.setuptools.packages.find]
 where = ["src"]

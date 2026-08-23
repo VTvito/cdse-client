@@ -41,7 +41,7 @@ tiff = crop_and_stack(
 ```python
 from cdse.processing import calculate_ndvi
 
-ndvi = calculate_ndvi(nir_path="B08.tif", red_path="B04.tif")
+ndvi_path = calculate_ndvi(nir_path="B08.tif", red_path="B04.tif", output_path="ndvi.tif")
 ```
 
 !!! note

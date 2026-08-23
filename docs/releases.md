@@ -1,5 +1,41 @@
 # Release Notes
 
+## Version 1.0.0 (2026-08-23) 🎉 First Stable Release
+
+The public API has been unchanged since 0.3.0. There are **no breaking changes** relative to
+0.4.0 — upgrading is a drop-in `pip install --upgrade cdse-client`. The 1.0 number states
+that the API is stable and from now on follows semantic versioning.
+
+### What changed
+
+This release is about the project's presentation rather than its code:
+
+- The README, the PyPI summary and this documentation site now lead with what the library
+  does. The comparison with `sentinelsat` moved to a dedicated
+  [migration guide](migration.md).
+- The README shrank from 352 to about 125 lines: the API catalogue it carried duplicated
+  this site, so it now links here instead.
+- `Development Status` is now `5 - Production/Stable`, and the package declares
+  `Typing :: Typed` and `Environment :: Console`.
+- The version number is single-sourced from `cdse.__version__`.
+
+### Fixed
+
+- The `calculate_ndvi` example in the [processing guide](user-guide/processing.md) was
+  missing the required `output_path` argument and raised `TypeError` as written.
+- The README no longer claims `.env` files are loaded automatically — they are not; set
+  `CDSE_CLIENT_ID` and `CDSE_CLIENT_SECRET` in the environment, or pass them to
+  `CDSEClient()` directly.
+
+### Removed
+
+- The 2.7 MB `notebooks/test_cdse_client.ipynb`, which was unreferenced, still labelled
+  v0.3.0, and accounted for 92% of the repository's tracked bytes. Everything it covered
+  lives in the [user guide](user-guide/search.md) and in the runnable `examples/` scripts.
+- The unused Read the Docs configuration; documentation is published here, on GitHub Pages.
+
+---
+
 ## Version 0.4.0 (2026-02-12) ⭐ Production Ready
 
 **cdse-client 0.4.0** brings major production hardening with automatic token refresh, resilient retry logic, comprehensive logging, and critical bug fixes. This release is recommended for all production deployments.
