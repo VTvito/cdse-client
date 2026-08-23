@@ -12,6 +12,7 @@ import time
 from pathlib import Path
 from typing import Any, Optional
 
+from cdse.catalog import _MAX_PAGE_SIZE, _MAX_SEARCH_PAGES, _MIN_PAGE_SIZE, Catalog
 from cdse.exceptions import AuthenticationError, CatalogError, DownloadError
 from cdse.product import Product
 
@@ -161,34 +162,68 @@ class CDSEClientAsync:
         """
         await self._ensure_session()
 
+        center_lon = (bbox[0] + bbox[2]) / 2
+        center_lat = (bbox[1] + bbox[3]) / 2
+
+        # Same reasoning as the sync client: the filters run after the response
+        # arrives, so a page sized to `limit` would under-deliver.
+        page_size = min(_MAX_PAGE_SIZE, max(limit, _MIN_PAGE_SIZE))
+
         query = {
             "collections": [collection],
             "datetime": f"{start_date}T00:00:00Z/{end_date}T23:59:59Z",
             "bbox": bbox,
-            "limit": limit,
+            "limit": page_size,
         }
         query.update(kwargs)
 
-        async with self._session.post(
-            self.CATALOG_URL,
-            json=query,
-            headers=self._get_headers(),
-        ) as response:
-            if response.status != 200:
-                text = await response.text()
-                raise CatalogError(f"Search failed: {response.status} - {text}")
+        products: list[Product] = []
+        next_token: Any = None
 
-            data = await response.json()
+        for _ in range(_MAX_SEARCH_PAGES):
+            body = dict(query)
+            if next_token is not None:
+                body["next"] = next_token
+
+            async with self._session.post(
+                self.CATALOG_URL,
+                json=body,
+                headers=self._get_headers(),
+            ) as response:
+                if response.status != 200:
+                    text = await response.text()
+                    raise CatalogError(f"Search failed: {response.status} - {text}")
+
+                data = await response.json()
+
             features = data.get("features", [])
+            if not features:
+                break
 
-            # Filter by cloud cover
-            filtered = [
-                f
-                for f in features
-                if f.get("properties", {}).get("eo:cloud_cover", 100) <= cloud_cover_max
-            ]
+            filtered = Catalog._filter_by_cloud_cover(features, cloud_cover_max)
+            # The sync client also drops tiles that do not cover the search
+            # centre; without this the two clients answered the same query
+            # with different result sets.
+            filtered = Catalog._filter_by_center_point(filtered, center_lon, center_lat)
 
-            return [Product.from_stac_feature(f) for f in filtered[:limit]]
+            products.extend(Product.from_stac_feature(f) for f in filtered)
+
+            if len(products) >= limit:
+                break
+
+            next_token = Catalog._next_page_token(data)
+            if next_token is None:
+                break
+        else:
+            logger.warning(
+                "Stopped after %d pages with %d of %d requested products; "
+                "narrow the search or raise the cloud cover threshold.",
+                _MAX_SEARCH_PAGES,
+                len(products),
+                limit,
+            )
+
+        return products[:limit]
 
     async def download(
         self,
