@@ -51,3 +51,53 @@ jobs:
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           packages-dir: dist
+          # Allow re-running the workflow on a tag whose version is already
+          # on PyPI (a version can never be re-uploaded).
+          skip-existing: true
+
+  github-release:
+    needs: publish
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download dist artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+      - name: Extract release notes from CHANGELOG
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          # Print the CHANGELOG section for this version, stopping at the next heading.
+          awk -v v="$VERSION" '
+            $0 == "## [" v "]" || index($0, "## [" v "] ") == 1 { found = 1; next }
+            found && /^## \[/ { exit }
+            found { print }
+          ' CHANGELOG.md > notes.md
+          if [ ! -s notes.md ]; then
+            echo "::error::No CHANGELOG section found for version $VERSION"
+            exit 1
+          fi
+          echo "" >> notes.md
+          echo "See the [full changelog](https://github.com/${GITHUB_REPOSITORY}/blob/main/CHANGELOG.md)." >> notes.md
+          echo "--- release notes ---"
+          cat notes.md
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release edit "$GITHUB_REF_NAME" --notes-file notes.md
+          else
+            gh release create "$GITHUB_REF_NAME" \
+              --title "$GITHUB_REF_NAME" \
+              --notes-file notes.md \
+              --verify-tag \
+              dist/*
+          fi
