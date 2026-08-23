@@ -55,10 +55,12 @@ class TestDownloader:
 
     def test_download_success(self, downloader, mock_session, sample_product, temp_dir):
         """Test successful download."""
-        # Mock response
+        # Mock response — content-length must match the body, or the completeness
+        # check will (correctly) reject it as truncated.
+        payload = b"test data"
         mock_response = MagicMock()
-        mock_response.headers = {"content-length": "1000"}
-        mock_response.iter_content.return_value = [b"test data"]
+        mock_response.headers = {"content-length": str(len(payload))}
+        mock_response.iter_content.return_value = [payload]
         mock_response.raise_for_status = MagicMock()
         mock_session.get.return_value = mock_response
 
@@ -66,6 +68,35 @@ class TestDownloader:
 
         assert path.exists()
         assert path.name == "S2A_MSIL2A_20240115_T32TNR.zip"
+        assert path.read_bytes() == payload
+
+    def test_download_truncated_stream_raises(
+        self, downloader, mock_session, sample_product, temp_dir
+    ):
+        """A stream that ends early must fail, not be reported as a success."""
+        mock_response = MagicMock()
+        mock_response.headers = {"content-length": "1048576"}
+        mock_response.iter_content.return_value = [b"x" * 100]
+        mock_response.raise_for_status = MagicMock()
+        mock_session.get.return_value = mock_response
+
+        with pytest.raises(DownloadError, match="Incomplete download"):
+            downloader.download(sample_product, progress=False)
+
+        # The partial file must not survive: skip_existing would keep it forever.
+        assert not (Path(temp_dir) / "S2A_MSIL2A_20240115_T32TNR.zip").exists()
+
+    def test_download_unknown_length_is_accepted(self, downloader, mock_session, sample_product):
+        """Without content-length there is nothing to compare against."""
+        mock_response = MagicMock()
+        mock_response.headers = {}
+        mock_response.iter_content.return_value = [b"payload"]
+        mock_response.raise_for_status = MagicMock()
+        mock_session.get.return_value = mock_response
+
+        path = downloader.download(sample_product, progress=False)
+
+        assert path.read_bytes() == b"payload"
 
     def test_download_skip_existing(self, downloader, mock_session, sample_product, temp_dir):
         """Test that existing files are skipped."""
@@ -134,10 +165,11 @@ class TestDownloader:
             for i in range(3)
         ]
 
-        # Mock successful downloads
+        # Mock successful downloads — content-length must match the body.
+        payload = b"data"
         mock_response = MagicMock()
-        mock_response.headers = {"content-length": "100"}
-        mock_response.iter_content.return_value = [b"data"]
+        mock_response.headers = {"content-length": str(len(payload))}
+        mock_response.iter_content.return_value = [payload]
         mock_response.raise_for_status = MagicMock()
         mock_session.get.return_value = mock_response
 
@@ -178,3 +210,104 @@ class TestDownloader:
 
         assert url is not None
         assert "uuid-12345" in url
+
+
+class TestRequestWithRetry:
+    """Tests for Downloader._request_with_retry."""
+
+    @pytest.fixture
+    def temp_dir(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            yield tmpdir
+
+    def _response(self, status):
+        resp = MagicMock()
+        resp.status_code = status
+        return resp
+
+    def test_zero_retries_still_attempts_once(self, temp_dir):
+        """max_retries=0 must not blow up on an unbound local."""
+        session = MagicMock(spec=requests.Session)
+        session.get.return_value = self._response(200)
+
+        downloader = Downloader(session, output_dir=temp_dir, max_retries=0)
+        downloader._request_with_retry("get", "https://example.invalid")
+
+        assert session.get.call_count == 1
+
+    def test_retryable_status_is_raised_after_last_attempt(self, temp_dir, monkeypatch):
+        """Exhausting retries surfaces the last response, not an internal error."""
+        monkeypatch.setattr("cdse.downloader.time.sleep", lambda _: None)
+
+        resp = self._response(503)
+        resp.raise_for_status.side_effect = requests.exceptions.HTTPError(response=resp)
+        session = MagicMock(spec=requests.Session)
+        session.get.return_value = resp
+
+        downloader = Downloader(session, output_dir=temp_dir, max_retries=3)
+
+        with pytest.raises(requests.exceptions.HTTPError):
+            downloader._request_with_retry("get", "https://example.invalid")
+
+        assert session.get.call_count == 3
+
+    def test_no_sleep_after_the_final_attempt(self, temp_dir, monkeypatch):
+        """The last wait precedes nothing, so it must not happen."""
+        waits = []
+        monkeypatch.setattr("cdse.downloader.time.sleep", waits.append)
+
+        resp = self._response(429)
+        resp.raise_for_status.side_effect = requests.exceptions.HTTPError(response=resp)
+        session = MagicMock(spec=requests.Session)
+        session.get.return_value = resp
+
+        downloader = Downloader(session, output_dir=temp_dir, max_retries=3)
+
+        with pytest.raises(requests.exceptions.HTTPError):
+            downloader._request_with_retry("get", "https://example.invalid")
+
+        assert waits == [1, 2]  # not [1, 2, 4]
+
+    def test_retried_responses_are_closed(self, temp_dir, monkeypatch):
+        """Streamed bodies are never consumed, so each discarded try must be closed."""
+        monkeypatch.setattr("cdse.downloader.time.sleep", lambda _: None)
+
+        resp = self._response(502)
+        resp.raise_for_status.side_effect = requests.exceptions.HTTPError(response=resp)
+        session = MagicMock(spec=requests.Session)
+        session.get.return_value = resp
+
+        downloader = Downloader(session, output_dir=temp_dir, max_retries=3)
+
+        with pytest.raises(requests.exceptions.HTTPError):
+            downloader._request_with_retry("get", "https://example.invalid", stream=True)
+
+        # Two discarded attempts closed; the last is kept to raise from.
+        assert resp.close.call_count == 2
+
+    def test_connection_error_is_raised_after_last_attempt(self, temp_dir, monkeypatch):
+        monkeypatch.setattr("cdse.downloader.time.sleep", lambda _: None)
+
+        session = MagicMock(spec=requests.Session)
+        session.get.side_effect = requests.exceptions.ConnectionError("boom")
+
+        downloader = Downloader(session, output_dir=temp_dir, max_retries=2)
+
+        with pytest.raises(requests.exceptions.ConnectionError):
+            downloader._request_with_retry("get", "https://example.invalid")
+
+        assert session.get.call_count == 2
+
+    def test_most_recent_failure_wins(self, temp_dir, monkeypatch):
+        """A 503 after a connection error must raise the 503, not the stale error."""
+        monkeypatch.setattr("cdse.downloader.time.sleep", lambda _: None)
+
+        resp = self._response(503)
+        resp.raise_for_status.side_effect = requests.exceptions.HTTPError(response=resp)
+        session = MagicMock(spec=requests.Session)
+        session.get.side_effect = [requests.exceptions.ConnectionError("boom"), resp]
+
+        downloader = Downloader(session, output_dir=temp_dir, max_retries=2)
+
+        with pytest.raises(requests.exceptions.HTTPError):
+            downloader._request_with_retry("get", "https://example.invalid")

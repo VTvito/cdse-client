@@ -48,6 +48,17 @@ class TestCDSEClient:
         assert isinstance(catalog, Catalog)
         assert client._catalog is catalog  # Same instance
 
+    def test_catalog_uses_the_auto_refreshing_session(self, client, mock_auth):
+        """A plain OAuth2Session never renews its token, so searches would die
+        roughly ten minutes into a long-lived client."""
+        auth_instance = mock_auth.return_value
+
+        catalog = client.catalog
+
+        auth_instance.get_bearer_session.assert_called_once()
+        auth_instance.get_session.assert_not_called()
+        assert catalog.session is auth_instance.get_bearer_session.return_value
+
     def test_downloader_lazy_init(self, client, mock_auth):
         """Test downloader is lazily initialized."""
         assert client._downloader is None

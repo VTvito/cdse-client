@@ -70,7 +70,10 @@ class CDSEClient:
     def catalog(self) -> Catalog:
         """Get the catalog search client (lazy initialization)."""
         if self._catalog is None:
-            session = self._auth.get_session()
+            # A plain OAuth2Session captures the token once and never renews it,
+            # so a long-lived client would start failing with TokenExpiredError
+            # roughly ten minutes in. The bearer session refreshes on demand.
+            session = self._auth.get_bearer_session()
             self._catalog = Catalog(session)
         return self._catalog
 

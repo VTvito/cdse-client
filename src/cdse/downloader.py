@@ -90,13 +90,26 @@ class Downloader:
             requests.exceptions.ConnectionError: After all retries exhausted
         """
         kwargs.setdefault("timeout", self.timeout)
-        last_exception: Optional[Exception] = None
 
-        for attempt in range(self.max_retries):
+        # max_retries counts total attempts; 0 still means "try once".
+        attempts = max(1, self.max_retries)
+
+        # Only the most recent failure is kept: whichever of the two is set when
+        # the loop ends is the one that gets raised.
+        last_exception: Optional[Exception] = None
+        last_response: Optional[requests.Response] = None
+
+        for attempt in range(attempts):
+            is_last_attempt = attempt == attempts - 1
+
             try:
                 response = getattr(self.session, method)(url, **kwargs)
 
                 if response.status_code in _RETRYABLE_STATUS_CODES:
+                    last_response, last_exception = response, None
+                    if is_last_attempt:
+                        break
+
                     wait = 2**attempt
                     logger.warning(
                         "Request to %s returned %d, retrying in %ds (attempt %d/%d)",
@@ -104,8 +117,11 @@ class Downloader:
                         response.status_code,
                         wait,
                         attempt + 1,
-                        self.max_retries,
+                        attempts,
                     )
+                    # With stream=True the body is never consumed, so the
+                    # connection stays open unless it is released explicitly.
+                    response.close()
                     time.sleep(wait)
                     continue
 
@@ -113,24 +129,27 @@ class Downloader:
                 return response  # type: ignore[no-any-return]
 
             except requests.exceptions.ConnectionError as e:
-                last_exception = e
+                last_exception, last_response = e, None
+                if is_last_attempt:
+                    break
+
                 wait = 2**attempt
                 logger.warning(
                     "Connection error for %s, retrying in %ds (attempt %d/%d): %s",
                     url[:80],
                     wait,
                     attempt + 1,
-                    self.max_retries,
+                    attempts,
                     e,
                 )
                 time.sleep(wait)
 
-        # All retries exhausted — raise the last error
-        if last_exception:
+        # All attempts exhausted — surface the most recent failure.
+        if last_response is not None:
+            last_response.raise_for_status()
+        if last_exception is not None:
             raise last_exception
-        # If we got here via status code retries, raise the last response
-        response.raise_for_status()
-        return response  # type: ignore[no-any-return]  # unreachable, but keeps mypy happy
+        raise DownloadError(f"Request to {url} failed after {attempts} attempts")
 
     def download(
         self,
@@ -213,8 +232,21 @@ class Downloader:
                 if pbar:
                     pbar.close()
 
+            # A connection can close cleanly mid-stream: iter_content simply ends
+            # and the partial file would otherwise be reported as a success, then
+            # kept forever by skip_existing.
+            if total_size > 0 and downloaded != total_size:
+                raise DownloadError(
+                    f"Incomplete download: got {downloaded} of {total_size} bytes",
+                    product_id=product.id,
+                )
+
             return output_path
 
+        except DownloadError:
+            if output_path.exists():
+                output_path.unlink()
+            raise
         except requests.exceptions.HTTPError as e:
             # Clean up partial file
             if output_path.exists():
