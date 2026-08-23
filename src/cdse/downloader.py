@@ -427,7 +427,15 @@ class Downloader:
 
             return None
 
-        except Exception:
+        except Exception as e:
+            # Returning None collapses auth failures, network errors and malformed
+            # JSON into one generic "could not determine download URL". Keep the
+            # return value, but make the cause visible.
+            logger.warning(
+                "OData lookup failed while resolving a download URL for %s: %s",
+                product.name,
+                e,
+            )
             return None
 
     def get_product_info(self, product_id: str) -> dict[str, Any]:

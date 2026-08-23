@@ -8,7 +8,12 @@ from pathlib import Path
 from typing import Optional
 
 from cdse import CDSEClient, __version__
-from cdse.exceptions import AuthenticationError, CatalogError, DownloadError
+from cdse.exceptions import (
+    AuthenticationError,
+    CatalogError,
+    DownloadError,
+    ValidationError,
+)
 
 
 def main(args: Optional[list[str]] = None) -> int:
@@ -196,6 +201,12 @@ Examples:
         elif parsed.command == "collections":
             return cmd_collections(client_id, client_secret)
 
+    except ValidationError as e:
+        # ValidationError is a sibling of the handlers below under CDSEError, so
+        # without this clause a bad --bbox surfaced as a raw traceback.
+        field = f" ({e.field})" if getattr(e, "field", None) else ""
+        print(f"Invalid input{field}: {e.message}", file=sys.stderr)
+        return 1
     except AuthenticationError as e:
         print(f"Authentication error: {e.message}", file=sys.stderr)
         return 1
@@ -283,7 +294,14 @@ def cmd_search(client_id: str, client_secret: str, args: argparse.Namespace) -> 
             parallel=args.parallel,
             max_workers=args.workers,
         )
-        print(f"\nDownloaded {len(paths)} files.")
+        print(f"\nDownloaded {len(paths)} of {len(products)} files.")
+
+        # download_all only returns what succeeded. Exiting 0 here made a total
+        # failure look like a success to any script or CI job calling us.
+        failed = len(products) - len(paths)
+        if failed:
+            print(f"{failed} download(s) failed.", file=sys.stderr)
+            return 1
 
     return 0
 
