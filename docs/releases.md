@@ -29,6 +29,15 @@ copies. In particular, the `agriculture`, `vegetation` and `all_20m` entries of
 a message saying so instead of a `KeyError`. See the
 [processing guide](user-guide/processing.md) for which bands exist at which resolution.
 
+Two of those combinations also changed value: `agriculture` and `vegetation` shipped pairing
+B11, which has no 10 m copy, with B08, which has no 20 m copy — so as written they could not
+be satisfied at any resolution at all. Both now use B8A, the 20 m NIR band, and work at
+`resolution=20`.
+
+One more thing the crop used to lose: `stack_bands` names every band in the output, and
+`crop_to_bbox` then wrote those names away. The result of `crop_and_stack` now keeps them, so
+opening the file tells you which band is which.
+
 ### L1C products work
 
 The ZIP extractor filtered entry names on the `R{resolution}m` folder, which L1C products do

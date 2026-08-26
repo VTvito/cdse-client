@@ -33,6 +33,10 @@ reading before upgrading.
     selects anything.
   - The `agriculture`, `vegetation` and `all_20m` entries of `BAND_COMBINATIONS` need
     `resolution=20`; at the default `resolution=10` they now fail with a message saying so.
+- **`BAND_COMBINATIONS["agriculture"]` and `["vegetation"]` now use B8A in place of B08.** As
+  shipped they could not be satisfied at *any* resolution: they paired B11, which has no 10m
+  copy, with B08, which has no 20m copy. B8A is the 20m NIR band, so both combinations now work
+  at `resolution=20`.
 - **Catalog searches are paginated.** `limit` was passed to the server and applied before
   local filtering, so cloud-cover and center-point filters ate into the requested count and a
   search could return fewer products than were available. Results are now paged until the
@@ -80,6 +84,12 @@ reading before upgrading.
 #### CLI
 
 - **`ValidationError` escaped as a traceback** instead of a readable message.
+
+#### Processing (continued)
+
+- **`crop_to_bbox` dropped band descriptions.** `stack_bands` names each band in the output,
+  and the crop then wrote a file with those names gone - so the final product of
+  `crop_and_stack` gave no way to tell which band was which.
 
 ### Documentation
 

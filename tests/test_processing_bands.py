@@ -14,6 +14,7 @@ import pytest
 from cdse.exceptions import ValidationError
 from cdse.processing import (
     BAND_COMBINATIONS,
+    L2A_BANDS_BY_RESOLUTION,
     extract_bands_from_safe,
     stack_bands,
 )
@@ -33,19 +34,33 @@ def _make_zip(path: Path, entries: dict) -> Path:
     return path
 
 
-def _l2a_zip(tmp_path: Path) -> Path:
-    """A L2A layout: JP2s under R10m/R20m/R60m resolution subfolders."""
+# The real contents of an L2A product's resolution folders. No B08 at 20m on
+# purpose: L2A carries B8A there, not B08.
+L2A_R10M = ("B02", "B03", "B04", "B08")
+L2A_R20M = ("B01", "B02", "B03", "B04", "B05", "B06", "B07", "B8A", "B11", "B12")
+
+
+def _l2a_zip(tmp_path: Path, omit: tuple = ()) -> Path:
+    """A L2A layout: JP2s under R10m/R20m resolution subfolders.
+
+    ``omit`` drops bands from the archive without touching the folder layout, to
+    exercise the difference between "not valid at this resolution" and "valid,
+    but this particular product does not carry it".
+    """
     entries = {
         f"{L2A_PREFIX}/R10m/T32TQM_20240115T101031_{b}_10m.jp2": f"{b}@10m".encode()
-        for b in ("B02", "B03", "B04", "B08")
+        for b in L2A_R10M
+        if b not in omit
     }
     entries.update(
         {
             f"{L2A_PREFIX}/R20m/T32TQM_20240115T101031_{b}_20m.jp2": f"{b}@20m".encode()
-            for b in ("B02", "B03", "B04", "B05", "B11", "B12")
+            for b in L2A_R20M
+            if b not in omit
         }
     )
-    return _make_zip(tmp_path / f"{L2A_NAME}.zip", entries)
+    name = f"{L2A_NAME}.zip" if not omit else f"{L2A_NAME}_partial.zip"
+    return _make_zip(tmp_path / name, entries)
 
 
 def _l1c_zip(tmp_path: Path) -> Path:
@@ -137,15 +152,27 @@ class TestBandRequestValidation:
                 )
 
     def test_band_combinations_work_at_their_resolution(self, tmp_path):
-        """...and succeed once asked for at 20m."""
-        extracted = extract_bands_from_safe(
-            _l2a_zip(tmp_path),
-            bands=["B11", "B02"],
-            output_dir=tmp_path / "out",
-            resolution=20,
-        )
+        """...and every band of them is actually extractable at 20m."""
+        for name in ("agriculture", "vegetation", "all_20m"):
+            bands = BAND_COMBINATIONS[name]
+            extracted = extract_bands_from_safe(
+                _l2a_zip(tmp_path),
+                bands=bands,
+                output_dir=tmp_path / f"out_{name}",
+                resolution=20,
+            )
 
-        assert sorted(extracted) == ["B02", "B11"]
+            assert sorted(extracted) == sorted(bands), name
+
+    def test_every_band_combination_is_satisfiable(self):
+        """No shipped combination may mix bands that share no single resolution."""
+        for name, bands in BAND_COMBINATIONS.items():
+            resolutions = [
+                r
+                for r, available in L2A_BANDS_BY_RESOLUTION.items()
+                if all(b in available for b in bands)
+            ]
+            assert resolutions, f"{name} ({bands}) cannot be satisfied at any resolution"
 
     def test_unknown_band_is_rejected(self, tmp_path):
         """A typo must not come back as an empty result."""
@@ -184,19 +211,56 @@ class TestBandRequestValidation:
 
     def test_missing_band_reports_which_one(self, tmp_path):
         """A band absent from the product is named, not silently dropped."""
-        # B08 is 10m native, so it passes validation at 20m, but this L2A
-        # fixture has no B08 under R20m.
+        # B06 belongs in the 20m folder of a real L2A, so it passes validation;
+        # this particular archive simply does not carry it.
         with pytest.raises(ValidationError) as exc_info:
             extract_bands_from_safe(
-                _l2a_zip(tmp_path),
-                bands=["B04", "B08"],
+                _l2a_zip(tmp_path, omit=("B06",)),
+                bands=["B04", "B06"],
                 output_dir=tmp_path / "out",
                 resolution=20,
             )
 
         message = str(exc_info.value)
-        assert "B08" in message
+        assert "B06" in message
         assert "not found" in message
+
+    def test_band_present_only_at_10m_is_refused_at_20m(self, tmp_path):
+        """B08 has no 20m copy - B8A is its counterpart - so the hint must say 10m."""
+        with pytest.raises(ValidationError) as exc_info:
+            extract_bands_from_safe(
+                _l2a_zip(tmp_path),
+                bands=["B08"],
+                output_dir=tmp_path / "out",
+                resolution=20,
+            )
+
+        message = str(exc_info.value)
+        assert "resolution=10" in message
+        assert "resolution=20" not in message  # the old hint sent people the wrong way
+
+    def test_band_resampled_up_is_allowed(self, tmp_path):
+        """B01 is 60m native but L2A ships it in the 20m folder."""
+        extracted = extract_bands_from_safe(
+            _l2a_zip(tmp_path),
+            bands=["B01"],
+            output_dir=tmp_path / "out",
+            resolution=20,
+        )
+
+        assert extracted["B01"].read_bytes() == b"B01@20m"
+
+    def test_band_absent_from_l2a_entirely(self, tmp_path):
+        """B10 is dropped in L2A processing; say so rather than name a resolution."""
+        with pytest.raises(ValidationError) as exc_info:
+            extract_bands_from_safe(
+                _l2a_zip(tmp_path),
+                bands=["B10"],
+                output_dir=tmp_path / "out",
+                resolution=60,
+            )
+
+        assert "L1C only" in str(exc_info.value)
 
     def test_l1c_missing_band_reports_which_one(self, tmp_path):
         """Leniency on L1C still ends in a named band, not a short dict."""
