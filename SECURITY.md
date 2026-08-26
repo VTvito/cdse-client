@@ -1,45 +1,65 @@
 # Security Policy
 
-## Supported Versions
+## Supported versions
 
-| Version | Supported          |
-| ------- | ------------------ |
-| 0.3.x   | :white_check_mark: |
-| < 0.3   | :x:                |
+Fixes go into the **latest release line**. The current one is on
+[PyPI](https://pypi.org/project/cdse-client/) and in
+[the releases](https://github.com/VTvito/cdse-client/releases); the public API has been stable
+since 0.3.0, so upgrading is a drop-in `pip install --upgrade cdse-client`.
 
-## Reporting a Vulnerability
+Older lines are not backported. This is stated as a policy rather than a version table on
+purpose: a table has to be edited on every release, and the one this file used to carry sat at
+`0.3.x` long after that stopped being true.
 
-If you discover a security vulnerability in cdse-client, please report it responsibly:
+## Reporting a vulnerability
 
-1. **Do NOT** open a public GitHub issue for security vulnerabilities
-2. Email the maintainer at: 75219756+VTvito@users.noreply.github.com
-3. Include:
-   - Description of the vulnerability
-   - Steps to reproduce
-   - Potential impact
-   - Any suggested fixes (optional)
+**Do not open a public issue.** Use one of these instead:
 
-## Response Timeline
+1. [Report a vulnerability privately](https://github.com/VTvito/cdse-client/security/advisories/new)
+   through GitHub. This is the preferred route: it gives you a tracked, private thread and lets
+   the fix be prepared without disclosing it first.
+2. Failing that, email 75219756+VTvito@users.noreply.github.com.
 
-- **Acknowledgment**: Within 48 hours
-- **Initial Assessment**: Within 1 week
-- **Fix Timeline**: Depends on severity
-  - Critical: 24-72 hours
-  - High: 1-2 weeks
-  - Medium/Low: Next release cycle
+Please include what you found, how to reproduce it, what an attacker gets out of it, and — if
+you have one — a suggested fix.
 
-## Security Best Practices for Users
+## What to expect
 
-1. **Never commit credentials**: Use environment variables for `CDSE_CLIENT_ID` and `CDSE_CLIENT_SECRET`
-2. **Use `.env` files** with `.gitignore` for local development
-3. **Rotate credentials** periodically in your CDSE account
-4. **Keep dependencies updated**: Run `pip install --upgrade cdse-client` regularly
+This is a single-maintainer project worked on outside of a job, so what follows is an honest
+description rather than a service commitment: reports are usually acknowledged within a week,
+and a fix for something exploitable is prioritised over everything else in the queue.
+
+If two weeks pass with no reply at all, open a public issue saying only that you are waiting on
+a security report — no details — so it is visible that one is outstanding.
+
+Credit is given in the release notes unless you would rather it were not.
+
+## Scope
+
+In scope: anything in this library that mishandles your credentials, weakens the transport to
+CDSE, writes outside the directory you asked it to write to, or executes data it should only be
+parsing.
+
+Out of scope: the Copernicus Data Space Ecosystem service itself, and the contents of the
+products it serves. Those belong to [CDSE](https://dataspace.copernicus.eu/), not here.
+
+## For users
+
+1. **Never commit credentials.** Use the `CDSE_CLIENT_ID` and `CDSE_CLIENT_SECRET` environment
+   variables.
+2. **Use a `.env` file** kept out of version control for local development.
+3. **Rotate credentials** periodically in your CDSE account.
+4. **Keep the package current**: `pip install --upgrade cdse-client`.
 
 ## Dependencies
 
-This library uses well-maintained dependencies with known security practices:
-- `requests` - HTTP library with TLS/SSL support
-- `requests-oauthlib` - OAuth2 authentication
-- `tqdm` - Progress bars (no network access)
+The required dependency set is deliberately small:
 
-Optional dependencies are only loaded when needed, minimizing attack surface.
+- `requests` — HTTP, with TLS
+- `requests-oauthlib` and `oauthlib` — OAuth2 client-credentials flow
+- `tqdm` — progress bars, no network access
+- `python-dateutil` — timestamp parsing
+
+Everything else — rasterio, shapely, geopandas, pandas, aiohttp, matplotlib — lives behind an
+optional extra and is imported lazily, inside the functions that need it. Installing the base
+package does not pull them in, and not calling those functions does not load them.
