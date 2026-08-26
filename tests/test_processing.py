@@ -199,3 +199,44 @@ class TestExtractBandsFromSafe:
             assert "Unsupported format" in str(exc_info.value)
         finally:
             temp_path.unlink(missing_ok=True)
+
+
+class TestCropPreservesBandNames:
+    """crop_to_bbox must not throw away the band names stack_bands sets."""
+
+    def _stacked(self, tmp_path):
+        from rasterio.transform import from_origin
+
+        transform = from_origin(9.0, 45.6, 0.001, 0.001)
+        path = tmp_path / "stacked.tif"
+        with rasterio.open(
+            path,
+            "w",
+            driver="GTiff",
+            height=200,
+            width=200,
+            count=3,
+            dtype="uint16",
+            crs="EPSG:4326",
+            transform=transform,
+        ) as dst:
+            for i, name in enumerate(["B04", "B03", "B02"], 1):
+                dst.write(np.full((200, 200), i * 100, dtype="uint16"), i)
+                dst.set_band_description(i, name)
+        return path
+
+    def test_descriptions_survive_the_crop(self, tmp_path):
+        cropped = crop_to_bbox(
+            self._stacked(tmp_path), [9.05, 45.45, 9.15, 45.55], tmp_path / "out.tif"
+        )
+
+        with rasterio.open(cropped) as src:
+            assert src.descriptions == ("B04", "B03", "B02")
+
+    def test_descriptions_follow_a_band_subset(self, tmp_path):
+        cropped = crop_to_bbox(
+            self._stacked(tmp_path), [9.05, 45.45, 9.15, 45.55], tmp_path / "sub.tif", bands=[1, 3]
+        )
+
+        with rasterio.open(cropped) as src:
+            assert src.descriptions == ("B04", "B02")

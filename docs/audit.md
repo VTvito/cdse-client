@@ -7,8 +7,8 @@ state of the code is legible without reading the whole git history.
 - **Screening**: 23 August 2026, against `5acb0db`
 - **Coverage**: all 13 modules of `src/cdse`. The screening is complete.
 - **Method**: `[P]` = reproduced by running the code · `[L]` = read from the source, not yet run
-- **Fixes**: 14 of 28 closed, each with a regression test
-- **Tests**: 102 → 146 passing with the optional extras installed; 136 in CI, which
+- **Fixes**: 15 of 29 closed, each with a regression test
+- **Tests**: 102 → 188 passing with the optional extras installed; 136 in CI, which
   installs only `.[dev]` (see the note on skipped tests at the end)
 
 ## Status
@@ -43,6 +43,7 @@ state of the code is legible without reading the whole git history.
 | 26 | 🟡 | geocoding.py | Nominatim: retries with no pause, and a shared user agent `[P]` | open |
 | 27 | ⚪ | geocoding.py | Near the poles the buffer produces an absurd bbox `[P]` | open |
 | 28 | ⚪ | geometry.py | `geojson_to_wkt` on empty coordinates emits `POLYGON ()` `[P]` | open |
+| 29 | ⚪ | processing.py | `crop_to_bbox` discarded band descriptions `[P]` | ✅ **fixed** |
 
 ---
 
@@ -248,6 +249,34 @@ that, not that rasterio is missing.
 
 The comment in `BAND_COMBINATIONS` now marks which three combinations want `resolution=20`,
 and the [processing guide](user-guide/processing.md) explains it.
+
+**Follow-up, found by smoke-testing the fix before release.** The first version of this
+validation modelled availability as `native_resolution <= requested`, which is wrong in both
+directions. The real L2A layout is not monotonic:
+
+| Folder | Bands |
+|---|---|
+| `R10m` | B02, B03, B04, B08 |
+| `R20m` | B01, B02, B03, B04, B05, B06, B07, B8A, B11, B12 |
+| `R60m` | the 20m set, plus B09 |
+
+B08 has no 20m copy — B8A is its counterpart — while B01 and B09 are resampled *up* into the
+coarser folders, and B10 is dropped from L2A entirely. Under the old rule, B01 at 20m was
+falsely rejected, and B08 at 20m was accepted and then failed later with a hint pointing at
+`resolution=20`, which is precisely where it does not exist. Availability is now an explicit
+set per folder (`L2A_BANDS_BY_RESOLUTION`).
+
+The same check surfaced a defect in the shipped constants: `agriculture` (`B11, B08, B02`) and
+`vegetation` (`B08, B11, B04`) paired a band with no 10m copy with a band with no 20m copy, so
+neither could be satisfied at any resolution. Both now use B8A.
+
+### ⚪ 29 — `crop_to_bbox` discarded band descriptions `[P]` — ✅ FIXED
+
+`stack_bands` calls `set_band_description` for every band, and `crop_to_bbox` then rebuilt the
+output from `src.meta`, which does not carry descriptions. The end product of `crop_and_stack`
+therefore had no band names at all, and nothing said which of the three bands was red. Found
+by the same smoke test; the descriptions are now copied across, following a band subset when
+`bands=` is given.
 
 ### 🟠 17 — `crop_to_bbox` outside the tile: raw `ValueError` `[P]`
 

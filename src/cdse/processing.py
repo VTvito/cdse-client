@@ -50,8 +50,8 @@ SENTINEL2_BANDS = {
 BAND_COMBINATIONS = {
     "true_color": ["B04", "B03", "B02"],  # RGB
     "false_color": ["B08", "B04", "B03"],  # NIR-R-G
-    "agriculture": ["B11", "B08", "B02"],  # SWIR-NIR-B - needs resolution=20
-    "vegetation": ["B08", "B11", "B04"],  # NIR-SWIR-R - needs resolution=20
+    "agriculture": ["B11", "B8A", "B02"],  # SWIR-NIR-B - needs resolution=20
+    "vegetation": ["B8A", "B11", "B04"],  # NIR-SWIR-R - needs resolution=20
     "ndvi": ["B08", "B04"],  # NIR and Red for NDVI calculation
     "ndwi": ["B03", "B08"],  # Green and NIR for water detection
     "all_10m": ["B02", "B03", "B04", "B08"],
@@ -61,18 +61,33 @@ BAND_COMBINATIONS = {
 # The resolution subfolders a Sentinel-2 L2A product ships (L1C has none).
 AVAILABLE_RESOLUTIONS = (10, 20, 60)
 
+# What each L2A resolution folder actually contains. This is deliberately a set
+# per folder and not a comparison against the native resolution, because the real
+# layout is not monotonic: B08 exists only at 10m - B8A is its 20m/60m
+# counterpart - while B01 and B09 are resampled *up* into the coarser folders,
+# and B10 is dropped from L2A entirely.
+L2A_BANDS_BY_RESOLUTION = {
+    10: {"B02", "B03", "B04", "B08"},
+    20: {"B01", "B02", "B03", "B04", "B05", "B06", "B07", "B8A", "B11", "B12"},
+    60: {"B01", "B02", "B03", "B04", "B05", "B06", "B07", "B8A", "B09", "B11", "B12"},
+}
+
 
 def _resolution_hint(band: str, resolution: int) -> str:
     """Explain, when we can, why a band is not available at a resolution."""
-    native = SENTINEL2_BANDS.get(band, {}).get("resolution")
-    if native is None:
+    if band not in SENTINEL2_BANDS:
         return f"{band} is not a known Sentinel-2 band"
-    if native > resolution:
+
+    elsewhere = sorted(r for r, bands in L2A_BANDS_BY_RESOLUTION.items() if band in bands)
+    if not elsewhere:
+        return f"{band} is not present in L2A products at any resolution (L1C only)"
+    if resolution not in elsewhere:
         return (
-            f"{band} is {native}m native and L2A products do not resample it down "
-            f"to {resolution}m; use resolution={native} or drop {band}"
+            f"{band} is not in the {resolution}m folder of an L2A product; it is "
+            f"available at {', '.join(f'{r}m' for r in elsewhere)} - "
+            f"use resolution={elsewhere[0]} or drop {band}"
         )
-    return f"{band} is {native}m native"
+    return f"{band} is {SENTINEL2_BANDS[band]['resolution']}m native"
 
 
 def _validate_band_request(
@@ -86,10 +101,10 @@ def _validate_band_request(
     Args:
         bands: Requested band names
         resolution: Requested resolution in meters
-        strict_resolution: Whether to reject bands coarser than ``resolution``.
-            Only true for L2A, which is the product level that actually has the
-            resampled copies; on L1C every band sits at its native resolution
-            and the argument does not select anything.
+        strict_resolution: Whether to check bands against the L2A resolution
+            folders. Only true for L2A, which is the product level that actually
+            has the resampled copies; on L1C every band sits at its native
+            resolution and the argument does not select anything.
 
     Raises:
         ValidationError: If the request cannot be satisfied as written
@@ -115,11 +130,11 @@ def _validate_band_request(
     if not strict_resolution:
         return
 
-    too_coarse = [b for b in bands if SENTINEL2_BANDS[b]["resolution"] > resolution]
-    if too_coarse:
+    unavailable = [b for b in bands if b not in L2A_BANDS_BY_RESOLUTION[resolution]]
+    if unavailable:
         raise ValidationError(
             "Band(s) not available at the requested resolution: "
-            + "; ".join(_resolution_hint(b, resolution) for b in too_coarse),
+            + "; ".join(_resolution_hint(b, resolution) for b in unavailable),
             field="bands",
         )
 
@@ -214,6 +229,12 @@ def crop_to_bbox(
         output_path.parent.mkdir(parents=True, exist_ok=True)
         with rasterio.open(output_path, "w", **out_meta) as dst:
             dst.write(out_image)
+            # meta carries no band descriptions, so without this a stacked product
+            # comes out of the crop with its band names gone.
+            kept = [src.descriptions[b - 1] for b in bands] if bands else src.descriptions
+            for index, description in enumerate(kept, 1):
+                if description:
+                    dst.set_band_description(index, description)
 
     return output_path
 
