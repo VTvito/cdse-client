@@ -94,15 +94,26 @@ class CDSEClientAsync:
         if self._session is None:
             self._session = aiohttp.ClientSession()
             self._semaphore = asyncio.Semaphore(self.max_concurrent)
-            self._auth_lock = asyncio.Lock()
             await self._authenticate()
         elif not self._is_token_valid():
             await self._refresh_token()
 
+    def _get_auth_lock(self) -> asyncio.Lock:
+        """Return the refresh lock, creating it on first use.
+
+        Not built in ``__init__``: on Python 3.9 ``asyncio.Lock()`` binds to the
+        event loop running when it is constructed, which is not necessarily the
+        one the client ends up being used from. Creating it here is race-free -
+        there is no await between the check and the assignment, so no other task
+        can interleave.
+        """
+        if self._auth_lock is None:
+            self._auth_lock = asyncio.Lock()
+        return self._auth_lock
+
     async def _refresh_token(self) -> None:
         """Re-authenticate, at most once even when many tasks notice together."""
-        assert self._auth_lock is not None
-        async with self._auth_lock:
+        async with self._get_auth_lock():
             # Another task may have refreshed while this one waited for the lock.
             if self._is_token_valid():
                 return
