@@ -36,6 +36,17 @@ tiff = crop_and_stack(
 )
 ```
 
+!!! note "Bands and resolution"
+
+    Only B02, B03, B04 and B08 exist at 10m. L2A products do not resample the
+    20m bands (B05-B07, B8A, B11, B12) down, so asking for one of them at
+    `resolution=10` raises `ValidationError` instead of quietly dropping it.
+    The `agriculture`, `vegetation` and `all_20m` entries of `BAND_COMBINATIONS`
+    all need `resolution=20`.
+
+    L1C products have no resolution subfolders at all: every band comes at its
+    native resolution and the `resolution` argument selects nothing.
+
 ## NDVI
 
 ```python

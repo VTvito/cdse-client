@@ -50,13 +50,78 @@ SENTINEL2_BANDS = {
 BAND_COMBINATIONS = {
     "true_color": ["B04", "B03", "B02"],  # RGB
     "false_color": ["B08", "B04", "B03"],  # NIR-R-G
-    "agriculture": ["B11", "B08", "B02"],  # SWIR-NIR-B
-    "vegetation": ["B08", "B11", "B04"],  # NIR-SWIR-R
+    "agriculture": ["B11", "B08", "B02"],  # SWIR-NIR-B - needs resolution=20
+    "vegetation": ["B08", "B11", "B04"],  # NIR-SWIR-R - needs resolution=20
     "ndvi": ["B08", "B04"],  # NIR and Red for NDVI calculation
     "ndwi": ["B03", "B08"],  # Green and NIR for water detection
     "all_10m": ["B02", "B03", "B04", "B08"],
-    "all_20m": ["B05", "B06", "B07", "B8A", "B11", "B12"],
+    "all_20m": ["B05", "B06", "B07", "B8A", "B11", "B12"],  # needs resolution=20
 }
+
+# The resolution subfolders a Sentinel-2 L2A product ships (L1C has none).
+AVAILABLE_RESOLUTIONS = (10, 20, 60)
+
+
+def _resolution_hint(band: str, resolution: int) -> str:
+    """Explain, when we can, why a band is not available at a resolution."""
+    native = SENTINEL2_BANDS.get(band, {}).get("resolution")
+    if native is None:
+        return f"{band} is not a known Sentinel-2 band"
+    if native > resolution:
+        return (
+            f"{band} is {native}m native and L2A products do not resample it down "
+            f"to {resolution}m; use resolution={native} or drop {band}"
+        )
+    return f"{band} is {native}m native"
+
+
+def _validate_band_request(
+    bands: list[str],
+    resolution: int,
+    *,
+    strict_resolution: bool,
+) -> None:
+    """Check a band request against SENTINEL2_BANDS before touching the product.
+
+    Args:
+        bands: Requested band names
+        resolution: Requested resolution in meters
+        strict_resolution: Whether to reject bands coarser than ``resolution``.
+            Only true for L2A, which is the product level that actually has the
+            resampled copies; on L1C every band sits at its native resolution
+            and the argument does not select anything.
+
+    Raises:
+        ValidationError: If the request cannot be satisfied as written
+    """
+    if resolution not in AVAILABLE_RESOLUTIONS:
+        raise ValidationError(
+            f"Unsupported resolution: {resolution}m. "
+            f"Expected one of {', '.join(f'{r}m' for r in AVAILABLE_RESOLUTIONS)}",
+            field="resolution",
+        )
+
+    if not bands:
+        raise ValidationError("No bands requested", field="bands")
+
+    unknown = [b for b in bands if b not in SENTINEL2_BANDS]
+    if unknown:
+        raise ValidationError(
+            f"Unknown Sentinel-2 band(s): {', '.join(unknown)}. "
+            f"Known bands: {', '.join(sorted(SENTINEL2_BANDS))}",
+            field="bands",
+        )
+
+    if not strict_resolution:
+        return
+
+    too_coarse = [b for b in bands if SENTINEL2_BANDS[b]["resolution"] > resolution]
+    if too_coarse:
+        raise ValidationError(
+            "Band(s) not available at the requested resolution: "
+            + "; ".join(_resolution_hint(b, resolution) for b in too_coarse),
+            field="bands",
+        )
 
 
 def crop_to_bbox(
@@ -168,7 +233,13 @@ def extract_bands_from_safe(
         resolution: Target resolution in meters (10, 20, or 60)
 
     Returns:
-        Dictionary mapping band names to extracted file paths
+        Dictionary mapping band names to extracted file paths, one entry per
+        requested band
+
+    Raises:
+        ValidationError: If the path is missing or unsupported, if a band name is
+            unknown, if an L2A product is asked for a band coarser than
+            ``resolution``, or if a requested band is not in the product
 
     Example:
         >>> bands = extract_bands_from_safe(
@@ -182,17 +253,38 @@ def extract_bands_from_safe(
     if not safe_path.exists():
         raise ValidationError(f"Path not found: {safe_path}", field="safe_path")
 
+    # Only L2A carries the resampled copies that `resolution` picks between, so
+    # only there does asking for a 20m band at 10m mean anything. When the product
+    # level is not in the name, stay lenient and let the missing-band check below
+    # report what actually turned up.
+    is_l2a = "MSIL2A" in safe_path.name.upper()
+    _validate_band_request(bands, resolution, strict_resolution=is_l2a)
+
     # Handle ZIP files
     if safe_path.suffix.lower() == ".zip":
-        return _extract_bands_from_zip(safe_path, bands, output_dir, resolution)
+        extracted = _extract_bands_from_zip(safe_path, bands, output_dir, resolution)
 
     # Handle SAFE folders
-    if safe_path.suffix.upper() == ".SAFE" or safe_path.is_dir():
-        return _extract_bands_from_safe_folder(safe_path, bands, output_dir, resolution)
+    elif safe_path.suffix.upper() == ".SAFE" or safe_path.is_dir():
+        extracted = _extract_bands_from_safe_folder(safe_path, bands, output_dir, resolution)
 
-    raise ValidationError(
-        f"Unsupported format: {safe_path.suffix}. Expected .SAFE folder or .zip", field="safe_path"
-    )
+    else:
+        raise ValidationError(
+            f"Unsupported format: {safe_path.suffix}. Expected .SAFE folder or .zip",
+            field="safe_path",
+        )
+
+    # Returning a short dict silently is how a request for three bands used to end
+    # up as a two-band stack, or as a bare KeyError inside stack_bands.
+    missing = [band for band in bands if band not in extracted]
+    if missing:
+        raise ValidationError(
+            f"Band(s) not found in {safe_path.name} at {resolution}m: "
+            + "; ".join(_resolution_hint(band, resolution) for band in missing),
+            field="bands",
+        )
+
+    return extracted
 
 
 def _extract_bands_from_zip(
@@ -291,6 +383,9 @@ def stack_bands(
     Returns:
         Path to output stacked GeoTIFF
 
+    Raises:
+        ValidationError: If ``band_order`` names a band absent from ``band_paths``
+
     Example:
         >>> stacked = stack_bands(
         ...     {"B04": "red.jp2", "B03": "green.jp2", "B02": "blue.jp2"},
@@ -298,15 +393,28 @@ def stack_bands(
         ...     band_order=["B04", "B03", "B02"]
         ... )
     """
+    output_path = Path(output_path)
+    band_order = band_order or sorted(band_paths.keys())
+
+    # Argument checks come before the optional import: a caller who got the band
+    # list wrong should hear about that, not about rasterio.
+    if not band_order:
+        raise ValidationError("No bands to stack", field="band_paths")
+
+    missing = [band for band in band_order if band not in band_paths]
+    if missing:
+        raise ValidationError(
+            f"Cannot stack: no path given for band(s) {', '.join(missing)}. "
+            f"Available: {', '.join(sorted(band_paths)) or 'none'}",
+            field="band_order",
+        )
+
     try:
         import rasterio
     except ImportError as e:
         raise ImportError(
             "rasterio is required for processing. Install with: pip install cdse-client[processing]"
         ) from e
-
-    output_path = Path(output_path)
-    band_order = band_order or sorted(band_paths.keys())
 
     # Read first band for metadata
     first_band = band_paths[band_order[0]]
@@ -383,12 +491,10 @@ def crop_and_stack(
         tmpdir = Path(tmpdir)
 
         # Extract bands
+        # Raises ValidationError if any requested band is missing
         band_paths = extract_bands_from_safe(
             safe_path, bands, output_dir=tmpdir, resolution=resolution
         )
-
-        if not band_paths:
-            raise ValidationError(f"No bands found in {safe_path}", field="bands")
 
         # Stack bands
         stacked_path = tmpdir / "stacked.tif"
