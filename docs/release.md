@@ -23,7 +23,7 @@ This page is a practical checklist to get `cdse-client` ready for a clean PyPI r
 
 - CI runs on PRs and pushes:
   - Ruff format check + lint
-  - pytest (Python 3.9–3.13)
+  - pytest (Python 3.9–3.14)
   - MkDocs build in strict mode
   - Bandit scan
   - Build + `twine check`
