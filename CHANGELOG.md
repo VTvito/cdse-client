@@ -13,6 +13,11 @@ Fourteen correctness defects, found by a full screening of `src/cdse` and each c
 regression test. No public API is added or removed, but two behaviours changed in ways worth
 reading before upgrading.
 
+### Added
+
+- **Python 3.14 support.** 3.14 is in the CI matrix and declared in the classifiers.
+  `requires-python` is unchanged at `>=3.9`.
+
 ### Changed
 
 - **`extract_bands_from_safe` now raises instead of returning a partial result.** Asking for
