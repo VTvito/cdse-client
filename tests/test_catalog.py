@@ -203,3 +203,121 @@ class TestCatalog:
         assert "sentinel-2-l2a" in collections
         assert "sentinel-1-grd" in collections
         assert isinstance(collections, dict)
+
+
+class TestSearchPagination:
+    """Regressions for audit 02: client-side filters must not eat into `limit`."""
+
+    BBOX = [9.0, 45.0, 9.5, 45.5]
+    GEOM = {
+        "type": "Polygon",
+        "coordinates": [[[8.9, 44.9], [9.6, 44.9], [9.6, 45.6], [8.9, 45.6], [8.9, 44.9]]],
+    }
+
+    def _feature(self, i, cloud):
+        return {
+            "id": f"S2A_{i:03d}",
+            "collection": "sentinel-2-l2a",
+            "properties": {
+                "eo:cloud_cover": cloud,
+                "datetime": "2024-01-15T10:00:00Z",
+            },
+            "geometry": self.GEOM,
+            "bbox": self.BBOX,
+            "assets": {},
+        }
+
+    def _paged_session(self, archive, token_style="context"):
+        """A session that serves `archive` one page at a time."""
+        calls = []
+
+        def post(url, json=None, **kwargs):
+            calls.append(json)
+            start = json.get("next", 0)
+            page = archive[start : start + json["limit"]]
+            nxt = start + json["limit"]
+            has_more = nxt < len(archive)
+
+            payload = {"features": page}
+            if token_style == "context":
+                payload["context"] = {"next": nxt if has_more else None}
+            else:  # STAC link style
+                payload["links"] = [{"rel": "next", "body": {"next": nxt}}] if has_more else []
+
+            resp = MagicMock()
+            resp.raise_for_status = MagicMock()
+            resp.json.return_value = payload
+            return resp
+
+        session = MagicMock()
+        session.post.side_effect = post
+        return session, calls
+
+    def _search(self, session, **overrides):
+        params = {
+            "bbox": self.BBOX,
+            "start_date": "2024-01-01",
+            "end_date": "2024-01-31",
+            "cloud_cover_max": 20,
+            "limit": 5,
+        }
+        params.update(overrides)
+        return Catalog(session).search(**params)
+
+    def test_pages_until_limit_is_satisfied(self):
+        """Only every fifth scene is clear, so one page cannot satisfy limit=5."""
+        archive = [self._feature(i, 12 if i % 5 == 0 else 90) for i in range(200)]
+        session, calls = self._paged_session(archive)
+
+        products = self._search(session)
+
+        assert len(products) == 5
+        assert all(p.cloud_cover <= 20 for p in products)
+        assert len(calls) > 1, "should have fetched more than one page"
+
+    def test_follows_stac_style_next_link(self):
+        """The token may arrive in a next link instead of context.next."""
+        archive = [self._feature(i, 12 if i % 5 == 0 else 90) for i in range(200)]
+        session, calls = self._paged_session(archive, token_style="link")
+
+        products = self._search(session)
+
+        assert len(products) == 5
+        assert len(calls) > 1
+
+    def test_stops_when_the_archive_is_exhausted(self):
+        """A genuinely empty result must not loop to the page cap."""
+        archive = [self._feature(i, 90) for i in range(40)]  # nothing is clear
+        session, calls = self._paged_session(archive)
+
+        products = self._search(session)
+
+        assert products == []
+        assert len(calls) <= 3
+
+    def test_never_returns_more_than_limit(self):
+        archive = [self._feature(i, 5) for i in range(200)]  # everything is clear
+        session, _ = self._paged_session(archive)
+
+        assert len(self._search(session, limit=3)) == 3
+
+    def test_single_page_is_enough_when_nothing_is_filtered(self):
+        archive = [self._feature(i, 5) for i in range(50)]
+        session, calls = self._paged_session(archive)
+
+        products = self._search(session, limit=5)
+
+        assert len(products) == 5
+        assert len(calls) == 1
+
+    def test_next_page_token_prefers_context(self):
+        assert Catalog._next_page_token({"context": {"next": 42}}) == 42
+
+    def test_next_page_token_falls_back_to_links(self):
+        results = {"links": [{"rel": "next", "body": {"next": "abc"}}]}
+        assert Catalog._next_page_token(results) == "abc"
+
+    def test_next_page_token_returns_none_on_last_page(self):
+        assert Catalog._next_page_token({"context": {"next": None}}) is None
+        assert Catalog._next_page_token({"links": []}) is None
+        assert Catalog._next_page_token({}) is None

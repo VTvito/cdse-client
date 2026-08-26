@@ -12,6 +12,7 @@ import time
 from pathlib import Path
 from typing import Any, Optional
 
+from cdse.catalog import _MAX_PAGE_SIZE, _MAX_SEARCH_PAGES, _MIN_PAGE_SIZE, Catalog
 from cdse.exceptions import AuthenticationError, CatalogError, DownloadError
 from cdse.product import Product
 
@@ -69,6 +70,7 @@ class CDSEClientAsync:
         self._access_token: Optional[str] = None
         self._token_expires_at: float = 0
         self._semaphore: Optional[asyncio.Semaphore] = None
+        self._auth_lock: Optional[asyncio.Lock] = None
 
     async def __aenter__(self) -> "CDSEClientAsync":
         """Async context manager entry."""
@@ -94,6 +96,27 @@ class CDSEClientAsync:
             self._semaphore = asyncio.Semaphore(self.max_concurrent)
             await self._authenticate()
         elif not self._is_token_valid():
+            await self._refresh_token()
+
+    def _get_auth_lock(self) -> asyncio.Lock:
+        """Return the refresh lock, creating it on first use.
+
+        Not built in ``__init__``: on Python 3.9 ``asyncio.Lock()`` binds to the
+        event loop running when it is constructed, which is not necessarily the
+        one the client ends up being used from. Creating it here is race-free -
+        there is no await between the check and the assignment, so no other task
+        can interleave.
+        """
+        if self._auth_lock is None:
+            self._auth_lock = asyncio.Lock()
+        return self._auth_lock
+
+    async def _refresh_token(self) -> None:
+        """Re-authenticate, at most once even when many tasks notice together."""
+        async with self._get_auth_lock():
+            # Another task may have refreshed while this one waited for the lock.
+            if self._is_token_valid():
+                return
             logger.debug("Async token expired, refreshing")
             await self._authenticate()
 
@@ -161,34 +184,68 @@ class CDSEClientAsync:
         """
         await self._ensure_session()
 
+        center_lon = (bbox[0] + bbox[2]) / 2
+        center_lat = (bbox[1] + bbox[3]) / 2
+
+        # Same reasoning as the sync client: the filters run after the response
+        # arrives, so a page sized to `limit` would under-deliver.
+        page_size = min(_MAX_PAGE_SIZE, max(limit, _MIN_PAGE_SIZE))
+
         query = {
             "collections": [collection],
             "datetime": f"{start_date}T00:00:00Z/{end_date}T23:59:59Z",
             "bbox": bbox,
-            "limit": limit,
+            "limit": page_size,
         }
         query.update(kwargs)
 
-        async with self._session.post(
-            self.CATALOG_URL,
-            json=query,
-            headers=self._get_headers(),
-        ) as response:
-            if response.status != 200:
-                text = await response.text()
-                raise CatalogError(f"Search failed: {response.status} - {text}")
+        products: list[Product] = []
+        next_token: Any = None
 
-            data = await response.json()
+        for _ in range(_MAX_SEARCH_PAGES):
+            body = dict(query)
+            if next_token is not None:
+                body["next"] = next_token
+
+            async with self._session.post(
+                self.CATALOG_URL,
+                json=body,
+                headers=self._get_headers(),
+            ) as response:
+                if response.status != 200:
+                    text = await response.text()
+                    raise CatalogError(f"Search failed: {response.status} - {text}")
+
+                data = await response.json()
+
             features = data.get("features", [])
+            if not features:
+                break
 
-            # Filter by cloud cover
-            filtered = [
-                f
-                for f in features
-                if f.get("properties", {}).get("eo:cloud_cover", 100) <= cloud_cover_max
-            ]
+            filtered = Catalog._filter_by_cloud_cover(features, cloud_cover_max)
+            # The sync client also drops tiles that do not cover the search
+            # centre; without this the two clients answered the same query
+            # with different result sets.
+            filtered = Catalog._filter_by_center_point(filtered, center_lon, center_lat)
 
-            return [Product.from_stac_feature(f) for f in filtered[:limit]]
+            products.extend(Product.from_stac_feature(f) for f in filtered)
+
+            if len(products) >= limit:
+                break
+
+            next_token = Catalog._next_page_token(data)
+            if next_token is None:
+                break
+        else:
+            logger.warning(
+                "Stopped after %d pages with %d of %d requested products; "
+                "narrow the search or raise the cloud cover threshold.",
+                _MAX_SEARCH_PAGES,
+                len(products),
+                limit,
+            )
+
+        return products[:limit]
 
     async def download(
         self,
@@ -237,33 +294,57 @@ class CDSEClientAsync:
 
         # Download with semaphore for concurrency control
         async with self._semaphore:
-            headers = {"Authorization": f"Bearer {self._access_token}"}
+            # A task can sit in the semaphore queue for hours. The token is
+            # therefore checked here, not before queueing, or every task in a
+            # long batch would run on the token it saw at start-up.
+            if not self._is_token_valid():
+                await self._refresh_token()
 
-            async with self._session.get(download_url, headers=headers) as response:
-                if response.status != 200:
+            headers = {"Authorization": f"Bearer {self._access_token}"}
+            downloaded = 0
+
+            try:
+                async with self._session.get(download_url, headers=headers) as response:
+                    if response.status != 200:
+                        raise DownloadError(
+                            f"Download failed: {response.status}",
+                            product_id=product.id,
+                        )
+
+                    total_size = int(response.headers.get("content-length", 0))
+                    pbar = None
+                    if progress and total_size > 0:
+                        pbar = tqdm(
+                            total=total_size,
+                            unit="B",
+                            unit_scale=True,
+                            desc=filename[:50],
+                        )
+
+                    async with aiofiles.open(output_path, "wb") as f:
+                        async for chunk in response.content.iter_chunked(131072):  # 128KB
+                            await f.write(chunk)
+                            downloaded += len(chunk)
+                            if pbar:
+                                pbar.update(len(chunk))
+
+                    if pbar:
+                        pbar.close()
+
+                # A connection that closes mid-stream ends the iterator without
+                # raising, so the byte count is the only thing that catches it.
+                if total_size > 0 and downloaded != total_size:
                     raise DownloadError(
-                        f"Download failed: {response.status}",
+                        f"Incomplete download: got {downloaded} of {total_size} bytes",
                         product_id=product.id,
                     )
 
-                total_size = int(response.headers.get("content-length", 0))
-                pbar = None
-                if progress and total_size > 0:
-                    pbar = tqdm(
-                        total=total_size,
-                        unit="B",
-                        unit_scale=True,
-                        desc=filename[:50],
-                    )
-
-                async with aiofiles.open(output_path, "wb") as f:
-                    async for chunk in response.content.iter_chunked(131072):  # 128KB
-                        await f.write(chunk)
-                        if pbar:
-                            pbar.update(len(chunk))
-
-                if pbar:
-                    pbar.close()
+            except BaseException:
+                # Without this the partial file survived, and the existence check
+                # at the top of download() then returned it forever.
+                if output_path.exists():
+                    output_path.unlink()
+                raise
 
         return output_path
 
@@ -306,7 +387,9 @@ class CDSEClientAsync:
 
     async def _get_download_url(self, product: Product) -> Optional[str]:
         """Get download URL for a product."""
-        if product.download_url:
+        # S3 hrefs need a different credential flow, so fall through to the
+        # OData lookup instead of handing aiohttp a scheme it cannot fetch.
+        if product.download_url and not product.download_url.startswith("s3://"):
             return product.download_url
 
         # Ensure .SAFE suffix for exact match
@@ -331,7 +414,12 @@ class CDSEClientAsync:
                     if product_uuid:
                         return f"{self.ODATA_URL}({product_uuid})/$value"
 
-        except Exception:
+        except Exception as e:
+            logger.warning(
+                "OData lookup failed while resolving a download URL for %s: %s",
+                product.name,
+                e,
+            )
             return None
 
         return None

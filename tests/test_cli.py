@@ -2,11 +2,13 @@
 
 import json
 from datetime import datetime
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 from cdse.cli import main
+from cdse.exceptions import ValidationError
 from cdse.product import Product
 
 
@@ -326,3 +328,79 @@ class TestCollectionsCommand:
         captured = capsys.readouterr()
         assert "sentinel-2-l2a" in captured.out
         assert "sentinel-1-grd" in captured.out
+
+
+class TestCliFailureReporting:
+    """Regressions for the CLI exit code and error handling."""
+
+    @pytest.fixture
+    def creds(self, monkeypatch):
+        monkeypatch.setenv("CDSE_CLIENT_ID", "id")
+        monkeypatch.setenv("CDSE_CLIENT_SECRET", "secret")
+
+    def test_validation_error_is_reported_not_raised(self, creds, capsys):
+        """A bad bbox must print an error, not escape as a traceback."""
+        with patch("cdse.cli.CDSEClient") as mock_client:
+            mock_client.return_value.search.side_effect = ValidationError(
+                "Longitude must be between -180 and 180, got 200", field="bbox"
+            )
+            code = main(
+                ["search", "--bbox", "200,45,201,46", "-s", "2024-01-01", "-e", "2024-01-31"]
+            )
+
+        assert code == 1
+        err = capsys.readouterr().err
+        assert "Invalid input (bbox)" in err
+        assert "Traceback" not in err
+
+    def test_exit_code_is_nonzero_when_downloads_fail(self, creds, capsys):
+        """download_all returns only what succeeded; a total failure must not exit 0."""
+        products = [make_sample_product(name=f"S2A_TEST_{i}") for i in range(3)]
+
+        with patch("cdse.cli.CDSEClient") as mock_client:
+            instance = mock_client.return_value
+            instance.search.return_value = products
+            instance.get_products_size.return_value = 1.0
+            instance.download_all.return_value = []  # every download failed
+
+            code = main(
+                [
+                    "search",
+                    "--bbox",
+                    "9,45,9.5,45.5",
+                    "-s",
+                    "2024-01-01",
+                    "-e",
+                    "2024-01-31",
+                    "--download",
+                ]
+            )
+
+        assert code == 1
+        captured = capsys.readouterr()
+        assert "Downloaded 0 of 3 files." in captured.out
+        assert "3 download(s) failed." in captured.err
+
+    def test_exit_code_is_zero_when_all_downloads_succeed(self, creds):
+        products = [make_sample_product(name=f"S2A_TEST_{i}") for i in range(2)]
+
+        with patch("cdse.cli.CDSEClient") as mock_client:
+            instance = mock_client.return_value
+            instance.search.return_value = products
+            instance.get_products_size.return_value = 1.0
+            instance.download_all.return_value = [Path("a.zip"), Path("b.zip")]
+
+            code = main(
+                [
+                    "search",
+                    "--bbox",
+                    "9,45,9.5,45.5",
+                    "-s",
+                    "2024-01-01",
+                    "-e",
+                    "2024-01-31",
+                    "--download",
+                ]
+            )
+
+        assert code == 0

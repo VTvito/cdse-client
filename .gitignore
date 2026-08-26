@@ -152,3 +152,6 @@ credentials.json
 
 # Test artifacts
 quick_test.py
+
+# Internal audit tracker (local only)
+AUDIT.md

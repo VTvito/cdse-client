@@ -2,6 +2,7 @@
 
 import contextlib
 import json
+import logging
 import math
 from datetime import datetime
 from typing import Any, Optional
@@ -10,6 +11,16 @@ import requests
 
 from cdse.exceptions import CatalogError, ValidationError
 from cdse.product import Product
+
+logger = logging.getLogger(__name__)
+
+
+# Paging bounds for search(). The cloud-cover and footprint filters run
+# client-side, so a single page of `limit` items would return fewer than asked
+# for whenever anything is filtered out.
+_MAX_PAGE_SIZE = 100  # Sentinel Hub caps a catalog page at 100
+_MIN_PAGE_SIZE = 20
+_MAX_SEARCH_PAGES = 10
 
 
 class Catalog:
@@ -84,42 +95,72 @@ class Catalog:
         self._validate_dates(start_date, end_date)
         self._validate_cloud_cover(cloud_cover_max)
 
+        center_lon = (bbox[0] + bbox[2]) / 2
+        center_lat = (bbox[1] + bbox[3]) / 2
+
+        # Ask for a full page rather than exactly `limit`: the filters below are
+        # applied after the response comes back, so a page sized to `limit` would
+        # deliver fewer products than requested whenever anything is filtered out.
+        page_size = min(_MAX_PAGE_SIZE, max(limit, _MIN_PAGE_SIZE))
+
         # Build STAC API query
         query_params = {
             "collections": [collection],
             "datetime": f"{start_date}T00:00:00Z/{end_date}T23:59:59Z",
             "bbox": bbox,
-            "limit": limit,
+            "limit": page_size,
         }
 
         # Add any additional parameters
         if kwargs:
             query_params.update(kwargs)
 
+        products: list[Product] = []
+        next_token: Any = None
+
         try:
-            response = self.session.post(
-                self.CATALOG_URL,
-                json=query_params,
-                headers={"Content-Type": "application/json"},
-                timeout=60,
-            )
-            response.raise_for_status()
+            for _ in range(_MAX_SEARCH_PAGES):
+                body = dict(query_params)
+                if next_token is not None:
+                    body["next"] = next_token
 
-            results = response.json()
-            features = results.get("features", [])
+                response = self.session.post(
+                    self.CATALOG_URL,
+                    json=body,
+                    headers={"Content-Type": "application/json"},
+                    timeout=60,
+                )
+                response.raise_for_status()
 
-            # Filter by cloud cover
-            filtered = self._filter_by_cloud_cover(features, cloud_cover_max)
+                results = response.json()
+                features = results.get("features", [])
+                if not features:
+                    break
 
-            # Filter by center point containment
-            center_lon = (bbox[0] + bbox[2]) / 2
-            center_lat = (bbox[1] + bbox[3]) / 2
-            filtered = self._filter_by_center_point(filtered, center_lon, center_lat)
+                # Filter by cloud cover
+                filtered = self._filter_by_cloud_cover(features, cloud_cover_max)
 
-            # Convert to Product objects
-            products = [Product.from_stac_feature(f) for f in filtered[:limit]]
+                # Filter by center point containment
+                filtered = self._filter_by_center_point(filtered, center_lon, center_lat)
 
-            return products
+                products.extend(Product.from_stac_feature(f) for f in filtered)
+
+                if len(products) >= limit:
+                    break
+
+                next_token = self._next_page_token(results)
+                if next_token is None:
+                    break
+            else:
+                logger.warning(
+                    "Stopped after %d pages with %d of %d requested products; "
+                    "narrow the search or raise the cloud cover threshold.",
+                    _MAX_SEARCH_PAGES,
+                    len(products),
+                    limit,
+                )
+
+            return products[:limit]
 
         except requests.exceptions.HTTPError as e:
             raise CatalogError(
@@ -169,8 +210,35 @@ class Catalog:
         """
         return self.COLLECTIONS.copy()
 
+    @staticmethod
+    def _next_page_token(results: dict[str, Any]) -> Any:
+        """Extract the paging token from a STAC search response.
+
+        Sentinel Hub returns it as ``context.next``; the STAC spec carries it in
+        the body of a ``next`` link. Both are accepted.
+
+        Args:
+            results: Decoded STAC search response
+
+        Returns:
+            The token to send as ``next`` on the following request, or None when
+            there are no further pages.
+        """
+        context = results.get("context") or {}
+        if isinstance(context, dict) and context.get("next") is not None:
+            return context["next"]
+
+        for link in results.get("links") or []:
+            if isinstance(link, dict) and link.get("rel") == "next":
+                body = link.get("body")
+                if isinstance(body, dict) and body.get("next") is not None:
+                    return body["next"]
+
+        return None
+
+    @staticmethod
     def _filter_by_cloud_cover(
-        self, features: list[dict[str, Any]], max_cloud: float
+        features: list[dict[str, Any]], max_cloud: float
     ) -> list[dict[str, Any]]:
         """Filter features by cloud cover percentage.
 
@@ -188,8 +256,8 @@ class Catalog:
                 filtered.append(f)
         return filtered
 
+    @staticmethod
     def _filter_by_center_point(
-        self,
         features: list[dict[str, Any]],
         center_lon: float,
         center_lat: float,
@@ -207,14 +275,15 @@ class Catalog:
         filtered = []
         for f in features:
             geometry = f.get("geometry", {})
-            if self._point_in_geometry(center_lon, center_lat, geometry):
+            if Catalog._point_in_geometry(center_lon, center_lat, geometry):
                 filtered.append(f)
             elif not geometry:
                 # If no geometry, keep the feature
                 filtered.append(f)
         return filtered
 
-    def _point_in_geometry(self, lon: float, lat: float, geometry: dict[str, Any]) -> bool:
+    @staticmethod
+    def _point_in_geometry(lon: float, lat: float, geometry: dict[str, Any]) -> bool:
         """Check if a point is inside a geometry (simplified bbox check).
 
         Args:
