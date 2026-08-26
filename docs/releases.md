@@ -7,6 +7,10 @@ regression test. No public API is added or removed. Upgrading is `pip install --
 cdse-client`, but two behaviours changed — read the first one if you use the processing
 module.
 
+### Python 3.14
+
+3.14 is now part of the tested matrix, alongside 3.9 through 3.13. The minimum stays 3.9.
+
 ### Band extraction now refuses a request it cannot satisfy
 
 `extract_bands_from_safe` used to return only the bands it happened to find, saying nothing
