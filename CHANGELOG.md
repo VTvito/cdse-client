@@ -7,6 +7,80 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-08-26
+
+Fourteen correctness defects, found by a full screening of `src/cdse` and each covered by a
+regression test. No public API is added or removed, but two behaviours changed in ways worth
+reading before upgrading.
+
+### Changed
+
+- **`extract_bands_from_safe` now raises instead of returning a partial result.** Asking for
+  a band that is unknown, absent from the product, or coarser than the requested resolution
+  raises `ValidationError`, and the request is validated against `SENTINEL2_BANDS` before the
+  product is opened. Previously the function returned a dictionary with fewer entries than
+  requested, which surfaced downstream as a bare `KeyError` from `stack_bands` or - with no
+  explicit `band_order` - as a silently shorter stack. **Callers that relied on the partial
+  dictionary will see the difference.** `stack_bands` likewise raises `ValidationError`
+  rather than `KeyError` when `band_order` names a band it has no path for.
+  - The band/resolution check applies to L2A only, which is the product level that ships the
+    resampled `R10m`/`R20m`/`R60m` copies and therefore the only one where `resolution`
+    selects anything.
+  - The `agriculture`, `vegetation` and `all_20m` entries of `BAND_COMBINATIONS` need
+    `resolution=20`; at the default `resolution=10` they now fail with a message saying so.
+- **Catalog searches are paginated.** `limit` was passed to the server and applied before
+  local filtering, so cloud-cover and center-point filters ate into the requested count and a
+  search could return fewer products than were available. Results are now paged until the
+  limit is satisfied. Both `context.next` and a STAC `next` link are accepted as the page
+  token.
+- **The CLI exits non-zero when no product is downloaded.** It previously reported success.
+
+### Fixed
+
+#### Downloads
+
+- **Truncated downloads were reported as successful.** A response cut short mid-transfer was
+  recorded as `success`, and the resulting short file was then skipped by the
+  already-downloaded check on every later run, so the corruption was permanent. The size is
+  now verified against `Content-Length` and a short file is discarded rather than kept.
+- **`max_retries=0` raised `UnboundLocalError`** instead of attempting the download once.
+- **URL-resolution failures were swallowed** by an `except Exception: return None`, which
+  turned every cause - auth, network, a missing product - into the same silent `None`.
+- **Streamed responses were never closed between retries**, leaking a connection per attempt.
+- **A retry slept after the final attempt**, adding the full backoff delay to every failure.
+
+#### Authentication
+
+- **The catalog never refreshed its token**, so searches on a long-lived client started
+  failing roughly ten minutes in.
+- **The async client never refreshed its token during a batch**, with the same result for
+  long download runs. The refresh is guarded by a lock, so concurrent tasks noticing an
+  expired token together produce one refresh rather than one each.
+
+#### Async client
+
+- **Partial files were kept forever.** An interrupted download left its `.part` behind with
+  no cleanup, and nothing ever reclaimed it.
+- **Async and sync searches returned different results.** The async path was missing the
+  `s3://` guard and the center-point filter the sync path applies.
+
+#### Processing
+
+- **No band was ever extracted from an L1C ZIP.** The extractor filtered entry names on
+  `R{resolution}m`, a folder L1C products do not have - their JP2s sit directly in
+  `IMG_DATA` - so it returned nothing and the caller reported "no bands found" for a product
+  that contained every band asked for. The archive is now checked once for that folder and
+  the filter is applied only when it exists, mirroring the SAFE-folder extractor.
+
+#### CLI
+
+- **`ValidationError` escaped as a traceback** instead of a readable message.
+
+### Documentation
+
+- `docs/user-guide/processing.md` now states which bands exist at which resolution, and that
+  the `resolution` argument selects nothing on L1C products.
+
 ## [1.0.0] - 2026-08-23
 
 First stable release. The public API has been unchanged since 0.3.0 and there are
@@ -166,7 +240,9 @@ now considered stable and covered by semantic versioning guarantees.
 - `sentinel-3-slstr` - Sentinel-3 SLSTR
 - `sentinel-5p-l2` - Sentinel-5P Level-2
 
-[Unreleased]: https://github.com/VTvito/cdse-client/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/VTvito/cdse-client/compare/v1.1.0...HEAD
+[1.1.0]: https://github.com/VTvito/cdse-client/compare/v1.0.0...v1.1.0
+[1.0.0]: https://github.com/VTvito/cdse-client/compare/v0.4.0...v1.0.0
 [0.4.0]: https://github.com/VTvito/cdse-client/compare/v0.3.3...v0.4.0
 [0.3.3]: https://github.com/VTvito/cdse-client/compare/v0.3.0...v0.3.3
 [0.3.0]: https://github.com/VTvito/cdse-client/compare/v0.2.0...v0.3.0
