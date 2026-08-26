@@ -209,20 +209,30 @@ def _extract_bands_from_zip(
     extracted = {}
 
     with zipfile.ZipFile(zip_path, "r") as zf:
+        names = zf.namelist()
+        res_pattern = f"R{resolution}m"
+
+        # L2A keeps the JP2s under R10m/R20m/R60m; L1C has none of those and puts
+        # them straight in IMG_DATA. Only filter on the resolution folder when the
+        # archive actually has one, mirroring _extract_bands_from_safe_folder.
+        has_res_folder = any(f"/{res_pattern}/" in name for name in names)
+
         # Find band files
         for band in bands:
-            res_pattern = f"R{resolution}m"
+            for name in names:
+                if not (band in name and name.endswith(".jp2")):
+                    continue
+                if has_res_folder and res_pattern not in name:
+                    continue
 
-            for name in zf.namelist():
-                if band in name and res_pattern in name and name.endswith(".jp2"):
-                    # Extract this band
-                    out_path = output_dir / f"{band}_{resolution}m.jp2"
+                # Extract this band
+                out_path = output_dir / f"{band}_{resolution}m.jp2"
 
-                    with zf.open(name) as src, open(out_path, "wb") as dst:
-                        dst.write(src.read())
+                with zf.open(name) as src, open(out_path, "wb") as dst:
+                    dst.write(src.read())
 
-                    extracted[band] = out_path
-                    break
+                extracted[band] = out_path
+                break
 
     return extracted
 
