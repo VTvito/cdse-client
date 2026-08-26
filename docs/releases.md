@@ -1,5 +1,61 @@
 # Release Notes
 
+## Version 1.1.0 (2026-08-26)
+
+Fourteen correctness defects, found by a full screening of the source and each covered by a
+regression test. No public API is added or removed. Upgrading is `pip install --upgrade
+cdse-client`, but two behaviours changed — read the first one if you use the processing
+module.
+
+### Band extraction now refuses a request it cannot satisfy
+
+`extract_bands_from_safe` used to return only the bands it happened to find, saying nothing
+about the rest. That ended two ways, both wrong: `stack_bands` raised a bare `KeyError`, or —
+with no explicit `band_order` — quietly wrote a stack with fewer bands than you asked for.
+
+It now validates the request against `SENTINEL2_BANDS` before opening the product and raises
+`ValidationError` for an unknown band, an unsupported resolution, or a band coarser than the
+resolution you asked for. The message says which resolution to ask for instead.
+
+**If you relied on the partial dictionary, you will see the difference.**
+
+The check applies to L2A, the product level that ships the resampled 10 m / 20 m / 60 m
+copies. In particular, the `agriculture`, `vegetation` and `all_20m` entries of
+`BAND_COMBINATIONS` need `resolution=20` — at the default `resolution=10` they now fail with
+a message saying so instead of a `KeyError`. See the
+[processing guide](user-guide/processing.md) for which bands exist at which resolution.
+
+### L1C products work
+
+The ZIP extractor filtered entry names on the `R{resolution}m` folder, which L1C products do
+not have — their images sit directly in `IMG_DATA`. It found nothing and reported "no bands
+found" for a product that contained every band requested. L1C is one of the six supported
+collections, and CDSE delivers ZIPs, so this affected every L1C processing call.
+
+### Searches return the number of products you asked for
+
+`limit` was handed to the server and applied *before* the cloud-cover and center-point
+filters ran locally, so those filters ate into the count and a search could come back with
+fewer products than were available. Searches are now paginated until the limit is satisfied.
+
+### Downloads no longer keep corrupt files
+
+A download cut short mid-transfer was recorded as successful, and the short file was then
+skipped by the already-downloaded check on every later run — so the corruption was permanent
+and invisible. Sizes are now verified and short files discarded.
+
+### Also fixed
+
+- Tokens are refreshed in the sync catalog and during async batches; searches and long
+  download runs no longer die about ten minutes in.
+- Interrupted async downloads clean up their partial files.
+- Async and sync searches return the same results.
+- The CLI exits non-zero when nothing was downloaded, and reports `ValidationError` as a
+  message rather than a traceback.
+- `max_retries=0` performs one attempt instead of raising `UnboundLocalError`.
+- Download-URL resolution errors are reported instead of being swallowed.
+- No pointless sleep after the final retry; streamed responses are closed between retries.
+
 ## Version 1.0.0 (2026-08-23) 🎉 First Stable Release
 
 The public API has been unchanged since 0.3.0. There are **no breaking changes** relative to
