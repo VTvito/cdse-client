@@ -2,39 +2,24 @@
 
 Thanks for contributing!
 
-## How Can I Contribute?
+## Reporting bugs
 
-### Reporting Bugs
-
-Before creating bug reports, please check existing issues. When creating a bug report, include:
+Check the existing issues first. When opening one, include:
 
 - A clear and descriptive title
-- Steps to reproduce the behavior
-- Expected behavior
-- Actual behavior
+- Steps to reproduce
+- What you expected, and what actually happened
 - Python version and OS
-- Full error traceback
+- The full traceback
 
-### Suggesting Enhancements
+Security vulnerabilities go through [SECURITY.md](SECURITY.md) instead — not a public issue.
 
-Enhancement suggestions are tracked as GitHub issues. When creating an enhancement suggestion:
+## Suggesting enhancements
 
-- Use a clear and descriptive title
-- Provide a detailed description of the suggested enhancement
-- Explain why this enhancement would be useful
+Enhancement suggestions are tracked as GitHub issues. Say what you want to be able to do and
+why the current API makes it awkward; that is more useful than a proposed signature.
 
-### Pull Requests
-
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Make your changes
-4. Run tests (`pytest`)
-5. Run formatter/linter (`ruff format src tests` and `ruff check src tests`)
-6. Commit your changes (`git commit -m 'Add amazing feature'`)
-7. Push to the branch (`git push origin feature/amazing-feature`)
-8. Open a Pull Request
-
-## Development Setup
+## Development setup
 
 ```bash
 # Clone your fork
@@ -45,33 +30,85 @@ cd cdse-client
 python -m venv .venv
 source .venv/bin/activate  # Windows (PowerShell): .\.venv\Scripts\Activate.ps1
 
-# Install with dev dependencies
+# Fast loop: linting and the tests that need no optional dependencies
 pip install -e ".[dev]"
-
-# Run tests
-pytest
-
-# Format code
-ruff format src tests
-ruff check src tests --fix
-
-# Optional: type checking
-mypy src/cdse
 ```
 
-## Code Style
+### Running the whole test suite
 
-- We use [Ruff](https://docs.astral.sh/ruff/) for formatting and linting
-- We use [mypy](https://mypy.readthedocs.io/) for type checking
-- All public functions must have docstrings (Google style)
-- All new features must have tests
+`.[dev]` is enough for a quick loop, but it does **not** install rasterio, aiohttp, pandas,
+geopandas or geopy — and the tests that need them skip silently rather than fail. That is
+around 50 of them, covering `processing.py`, `async_client.py`, the dataframe converters and
+geocoding. A green run against `.[dev]` alone does not mean you have tested a change to any of
+those.
 
-## Commit Messages
+If you are touching them, install the extras too:
 
-- Use the present tense ("Add feature" not "Added feature")
-- Use the imperative mood ("Move cursor to..." not "Moves cursor to...")
-- Keep the first line under 72 characters
-- Reference issues and pull requests when relevant
+```bash
+pip install -e ".[dev,processing,geo,dataframe,async]"
+pytest
+```
+
+The count tells you which one you ran: around 136 tests with `.[dev]`, around 188 with the
+extras.
+
+## Before opening a pull request
+
+CI runs five jobs, and passing `pytest` locally only satisfies one of them. Run all five:
+
+```bash
+ruff format --check src/ tests/     # lint job
+ruff check src/ tests/              # lint job
+pytest                              # test job (3.9 through 3.14 in CI)
+bandit -r src -q                    # security job
+mkdocs build --strict               # docs job, needs .[docs]
+python -m build && twine check --strict dist/*   # build job
+```
+
+Two of these bite people:
+
+- **bandit exits 1 on any finding**, not only high-severity ones. Its output prints a table by
+  severity *and* a table by confidence, which are easy to confuse — read the severity one.
+- **`mkdocs build --strict`** fails on a broken internal link, so a renamed page or a typo in a
+  relative path turns the docs job red.
+
+`ruff format src/ tests/` and `ruff check src/ tests/ --fix` will fix most lint findings for
+you.
+
+Type checking with `mypy src/cdse` is worth running but is not a CI gate.
+
+## Pull requests
+
+1. Fork the repository
+2. Branch from `main` (`git checkout -b fix/short-description`)
+3. Make your changes, with a test that fails before them and passes after
+4. Run the checks above
+5. Push and open a pull request against `main`
+
+CI runs on pull requests targeting `main` and on pushes to `main` — so the matrix does not see
+your work until the PR exists.
+
+## Code style
+
+- [Ruff](https://docs.astral.sh/ruff/) for formatting and linting; line length 100
+- Google-style docstrings on every public function
+- Type annotations on public signatures — the package ships `py.typed`
+- New behaviour comes with a test
+
+## Commit messages
+
+The history uses a `type: summary` first line — `fix:`, `docs:`, `ci:`, `test:`, `release:`,
+optionally scoped as `fix(processing):`. Keep that first line under 72 characters, in the
+imperative ("Add feature", not "Added feature").
+
+The body is where the value is: say what the behaviour was, what it is now, and why the change
+is shaped the way it is. Reference issues and pull requests where relevant.
+
+## Where the project's state is written down
+
+- [CHANGELOG.md](CHANGELOG.md) — what changed in each release
+- [docs/audit.md](docs/audit.md) — known defects, fixed and open, and the reasoning behind each
+  fix. Worth a look before starting on something: it may already be described there.
 
 ## License
 
