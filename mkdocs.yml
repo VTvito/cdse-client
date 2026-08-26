@@ -54,6 +54,7 @@ nav:
       - user-guide/async.md
   - Migration: migration.md
   - FAQ: faq.md
+  - Code audit: audit.md
   - API reference:
       - reference/client.md
       - reference/catalog.md
