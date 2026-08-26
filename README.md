@@ -2,6 +2,7 @@
 
 [![PyPI version](https://img.shields.io/pypi/v/cdse-client.svg)](https://pypi.org/project/cdse-client/)
 [![Python](https://img.shields.io/pypi/pyversions/cdse-client.svg)](https://pypi.org/project/cdse-client/)
+[![Downloads](https://img.shields.io/pypi/dm/cdse-client.svg)](https://pypistats.org/packages/cdse-client)
 [![CI](https://github.com/VTvito/cdse-client/actions/workflows/ci.yml/badge.svg)](https://github.com/VTvito/cdse-client/actions)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
