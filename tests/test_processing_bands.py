@@ -37,7 +37,7 @@ def _make_zip(path: Path, entries: dict) -> Path:
 # The real contents of an L2A product's resolution folders. No B08 at 20m on
 # purpose: L2A carries B8A there, not B08.
 L2A_R10M = ("B02", "B03", "B04", "B08")
-L2A_R20M = ("B01", "B02", "B03", "B04", "B05", "B06", "B07", "B8A", "B11", "B12")
+L2A_R20M = ("B01", "B02", "B03", "B04", "B05", "B06", "B07", "B8A", "B11", "B12", "SCL")
 
 
 def _l2a_zip(tmp_path: Path, omit: tuple = ()) -> Path:
@@ -293,3 +293,66 @@ class TestStackBandsValidation:
     def test_empty_band_paths(self, tmp_path):
         with pytest.raises(ValidationError):
             stack_bands({}, tmp_path / "out.tif")
+
+
+class TestSclBand:
+    """SCL is a band like any other for extraction: it lives at 20m and 60m only."""
+
+    def test_scl_is_extracted_at_20m(self, tmp_path):
+        extracted = extract_bands_from_safe(
+            _l2a_zip(tmp_path),
+            bands=["B04", "SCL"],
+            output_dir=tmp_path / "out",
+            resolution=20,
+        )
+
+        assert extracted["SCL"].read_bytes() == b"SCL@20m"
+        assert extracted["B04"].read_bytes() == b"B04@20m"
+
+    def test_scl_at_10m_is_refused_with_a_hint(self, tmp_path):
+        """L2A ships no SCL_10m; the error must say where it is."""
+        with pytest.raises(ValidationError) as exc_info:
+            extract_bands_from_safe(
+                _l2a_zip(tmp_path),
+                bands=["SCL"],
+                output_dir=tmp_path / "out",
+                resolution=10,
+            )
+
+        message = str(exc_info.value)
+        assert "SCL" in message
+        assert "20m" in message
+
+    def test_scl_classes_are_consistent(self):
+        from cdse.processing import SCL_CLASSES, SCL_CLOUD_CLASSES
+
+        assert set(SCL_CLASSES) >= SCL_CLOUD_CLASSES
+        assert {8, 9, 10} <= SCL_CLOUD_CLASSES  # the cloud classes proper
+
+    def test_scl_only_in_the_coarser_folders(self):
+        assert "SCL" not in L2A_BANDS_BY_RESOLUTION[10]
+        assert "SCL" in L2A_BANDS_BY_RESOLUTION[20]
+        assert "SCL" in L2A_BANDS_BY_RESOLUTION[60]
+
+
+class TestIndexBands:
+    """Every index pair must be satisfiable at one L2A resolution."""
+
+    def test_each_pair_shares_a_resolution(self):
+        from cdse.processing import INDEX_BANDS
+
+        for index, (a, b) in INDEX_BANDS.items():
+            common = [
+                r for r, bands in L2A_BANDS_BY_RESOLUTION.items() if a in bands and b in bands
+            ]
+            assert common, f"{index}: {a} and {b} never sit in the same L2A folder"
+
+    def test_pairs_extract_from_a_real_layout(self, tmp_path):
+        from cdse.processing import INDEX_BANDS, SENTINEL2_BANDS
+
+        for index, (a, b) in INDEX_BANDS.items():
+            native = max(SENTINEL2_BANDS[a]["resolution"], SENTINEL2_BANDS[b]["resolution"])
+            extracted = extract_bands_from_safe(
+                _l2a_zip(tmp_path), [a, b], output_dir=tmp_path / index, resolution=native
+            )
+            assert sorted(extracted) == sorted([a, b])

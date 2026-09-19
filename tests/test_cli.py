@@ -404,3 +404,66 @@ class TestCliFailureReporting:
             )
 
         assert code == 0
+
+
+class TestSearchCoverage:
+    """--coverage reaches the client untouched, and rejects anything else."""
+
+    @patch("cdse.cli.CDSEClient")
+    def test_coverage_any_is_forwarded(self, mock_client_class, monkeypatch):
+        monkeypatch.setenv("CDSE_CLIENT_ID", "id")
+        monkeypatch.setenv("CDSE_CLIENT_SECRET", "secret")
+        mock_client = MagicMock()
+        mock_client.search.return_value = []
+        mock_client_class.return_value = mock_client
+
+        code = main(
+            [
+                "search",
+                "--bbox",
+                "9,45,12,46",
+                "-s",
+                "2024-01-01",
+                "-e",
+                "2024-01-31",
+                "--coverage",
+                "any",
+            ]
+        )
+
+        assert code == 0
+        assert mock_client.search.call_args.kwargs["coverage"] == "any"
+
+    @patch("cdse.cli.CDSEClient")
+    def test_default_coverage_is_center(self, mock_client_class, monkeypatch):
+        monkeypatch.setenv("CDSE_CLIENT_ID", "id")
+        monkeypatch.setenv("CDSE_CLIENT_SECRET", "secret")
+        mock_client = MagicMock()
+        mock_client.search.return_value = []
+        mock_client_class.return_value = mock_client
+
+        main(["search", "--bbox", "9,45,9.5,45.5", "-s", "2024-01-01", "-e", "2024-01-31"])
+
+        assert mock_client.search.call_args.kwargs["coverage"] == "center"
+
+    def test_unknown_coverage_is_an_argparse_error(self, monkeypatch, capsys):
+        monkeypatch.setenv("CDSE_CLIENT_ID", "id")
+        monkeypatch.setenv("CDSE_CLIENT_SECRET", "secret")
+
+        with pytest.raises(SystemExit) as exc_info:
+            main(
+                [
+                    "search",
+                    "--bbox",
+                    "9,45,9.5,45.5",
+                    "-s",
+                    "2024-01-01",
+                    "-e",
+                    "2024-01-31",
+                    "--coverage",
+                    "all",
+                ]
+            )
+
+        assert exc_info.value.code == 2
+        assert "invalid choice" in capsys.readouterr().err

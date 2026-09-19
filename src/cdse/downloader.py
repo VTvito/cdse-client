@@ -18,6 +18,33 @@ logger = logging.getLogger(__name__)
 # HTTP status codes that are retryable (transient errors)
 _RETRYABLE_STATUS_CODES = {429, 502, 503, 504}
 
+# Container suffixes the OData catalogue uses in product names, per mission.
+_PRODUCT_SUFFIXES = (".SAFE", ".SEN3", ".nc", ".zip")
+
+
+def _odata_name(name: str) -> str:
+    """Return the name the OData catalogue stores for a STAC product id.
+
+    STAC ids come without the container suffix, while OData names carry it and
+    the ``Name eq`` lookup is exact. The suffix depends on the mission:
+    Sentinel-1 and -2 ship as ``.SAFE``, Sentinel-3 as ``.SEN3``, Sentinel-5P
+    as a single ``.nc`` file. A name that already ends in one of them is
+    returned unchanged.
+
+    Args:
+        name: Product name as returned by the STAC search
+
+    Returns:
+        The name with its container suffix
+    """
+    if name.endswith(_PRODUCT_SUFFIXES):
+        return name
+    if name.startswith("S3"):
+        return f"{name}.SEN3"
+    if name.startswith("S5P"):
+        return f"{name}.nc"
+    return f"{name}.SAFE"
+
 
 class Downloader:
     """Download products from CDSE.
@@ -405,11 +432,7 @@ class Downloader:
 
         # Query OData catalog to get UUID and build proper download URL
         try:
-            product_name = product.name
-
-            # Ensure .SAFE suffix for exact match (OData stores with .SAFE)
-            if not product_name.endswith(".SAFE"):
-                product_name = f"{product_name}.SAFE"
+            product_name = _odata_name(product.name)
 
             # Use exact Name match - 60x FASTER than contains() or startswith()!
             # contains(): ~25s, startswith(): ~20s, Name eq: ~0.5s
@@ -638,10 +661,7 @@ class Downloader:
             product_uuid = product._odata_uuid
         else:
             # Need to look up UUID via OData
-            product_name = product.name
-            if not product_name.endswith(".SAFE"):
-                product_name = f"{product_name}.SAFE"
-
+            product_name = _odata_name(product.name)
             query_url = f"{self.CATALOG_URL}?$filter=Name eq '{product_name}'"
 
             try:

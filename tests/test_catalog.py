@@ -321,3 +321,90 @@ class TestSearchPagination:
         assert Catalog._next_page_token({"context": {"next": None}}) is None
         assert Catalog._next_page_token({"links": []}) is None
         assert Catalog._next_page_token({}) is None
+
+
+class TestCoverage:
+    """The centre-point filter is right for a field and wrong for a region."""
+
+    # A 3-degree-wide area: wider than any Sentinel-2 tile.
+    BBOX = [9.0, 45.0, 12.0, 46.0]
+
+    @staticmethod
+    def _tile(i, min_lon, max_lon):
+        return {
+            "id": f"S2A_{i}",
+            "collection": "sentinel-2-l2a",
+            "properties": {"eo:cloud_cover": 5, "datetime": "2024-01-15T10:00:00Z"},
+            "geometry": {
+                "type": "Polygon",
+                "coordinates": [
+                    [
+                        [min_lon, 45.0],
+                        [max_lon, 45.0],
+                        [max_lon, 46.0],
+                        [min_lon, 46.0],
+                        [min_lon, 45.0],
+                    ]
+                ],
+            },
+            "bbox": [min_lon, 45.0, max_lon, 46.0],
+            "assets": {},
+        }
+
+    def _session(self):
+        # Three tiles side by side; only the middle one contains the centre (10.5, 45.5).
+        features = [self._tile(1, 9.0, 10.0), self._tile(2, 10.0, 11.0), self._tile(3, 11.0, 12.0)]
+        resp = MagicMock()
+        resp.raise_for_status = MagicMock()
+        resp.json.return_value = {"features": features, "context": {"next": None}}
+        session = MagicMock()
+        session.post.return_value = resp
+        return session
+
+    def _search(self, **overrides):
+        params = {"bbox": self.BBOX, "start_date": "2024-01-01", "end_date": "2024-01-31"}
+        params.update(overrides)
+        return Catalog(self._session()).search(**params)
+
+    def test_default_keeps_only_the_tile_covering_the_centre(self):
+        products = self._search()
+        assert [p.name for p in products] == ["S2A_2"]
+
+    def test_any_keeps_every_intersecting_tile(self):
+        products = self._search(coverage="any")
+        assert [p.name for p in products] == ["S2A_1", "S2A_2", "S2A_3"]
+
+    def test_invalid_coverage_is_rejected_before_any_request(self):
+        session = self._session()
+        with pytest.raises(ValidationError) as exc_info:
+            Catalog(session).search(
+                bbox=self.BBOX,
+                start_date="2024-01-01",
+                end_date="2024-01-31",
+                coverage="all",
+            )
+        assert exc_info.value.field == "coverage"
+        session.post.assert_not_called()
+
+
+class TestPointInGeometry:
+    """Audit 08: every polygon of a MultiPolygon must be evaluated."""
+
+    SQUARE_WEST = [[[170.0, 60.0], [180.0, 60.0], [180.0, 70.0], [170.0, 70.0], [170.0, 60.0]]]
+    SQUARE_EAST = [[[-180.0, 60.0], [-170.0, 60.0], [-170.0, 70.0], [-180.0, 70.0], [-180.0, 60.0]]]
+
+    def test_point_in_second_polygon_is_inside(self):
+        geometry = {"type": "MultiPolygon", "coordinates": [self.SQUARE_WEST, self.SQUARE_EAST]}
+        assert Catalog._point_in_geometry(-175.0, 65.0, geometry)
+
+    def test_point_in_neither_polygon_is_outside(self):
+        geometry = {"type": "MultiPolygon", "coordinates": [self.SQUARE_WEST, self.SQUARE_EAST]}
+        assert not Catalog._point_in_geometry(0.0, 65.0, geometry)
+
+    def test_plain_polygon_still_works(self):
+        geometry = {"type": "Polygon", "coordinates": self.SQUARE_WEST}
+        assert Catalog._point_in_geometry(175.0, 65.0, geometry)
+        assert not Catalog._point_in_geometry(0.0, 0.0, geometry)
+
+    def test_missing_geometry_is_kept(self):
+        assert Catalog._point_in_geometry(0.0, 0.0, {})

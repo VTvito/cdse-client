@@ -106,6 +106,15 @@ Examples:
         help="Maximum results (default: 10)",
     )
     search_parser.add_argument(
+        "--coverage",
+        choices=["center", "any"],
+        default="center",
+        help=(
+            "'center' keeps only products covering the bbox centre (default); "
+            "'any' keeps every product intersecting the bbox, for areas wider than one tile"
+        ),
+    )
+    search_parser.add_argument(
         "-d",
         "--download",
         action="store_true",
@@ -258,6 +267,7 @@ def cmd_search(client_id: str, client_secret: str, args: argparse.Namespace) -> 
         collection=args.collection,
         cloud_cover_max=args.cloud,
         limit=args.limit,
+        coverage=args.coverage,
     )
 
     if not products:

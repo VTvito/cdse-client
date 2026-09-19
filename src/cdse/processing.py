@@ -27,7 +27,7 @@ from cdse.exceptions import ValidationError
 logger = logging.getLogger(__name__)
 
 # Sentinel-2 band information
-SENTINEL2_BANDS = {
+SENTINEL2_BANDS: dict[str, dict[str, Any]] = {
     # 10m resolution
     "B02": {"name": "Blue", "resolution": 10, "wavelength": "490nm"},
     "B03": {"name": "Green", "resolution": 10, "wavelength": "560nm"},
@@ -44,7 +44,30 @@ SENTINEL2_BANDS = {
     "B01": {"name": "Coastal Aerosol", "resolution": 60, "wavelength": "443nm"},
     "B09": {"name": "Water Vapour", "resolution": 60, "wavelength": "945nm"},
     "B10": {"name": "Cirrus", "resolution": 60, "wavelength": "1375nm"},
+    # L2A only: the per-pixel scene classification, which is what a cloud mask
+    # is built from. Categorical, so it must never be resampled bilinearly.
+    "SCL": {"name": "Scene Classification", "resolution": 20, "wavelength": None},
 }
+
+# L2A scene classification (SCL) classes, as documented by ESA.
+SCL_CLASSES = {
+    0: "no_data",
+    1: "saturated_or_defective",
+    2: "dark_area_pixels",
+    3: "cloud_shadows",
+    4: "vegetation",
+    5: "not_vegetated",
+    6: "water",
+    7: "unclassified",
+    8: "cloud_medium_probability",
+    9: "cloud_high_probability",
+    10: "thin_cirrus",
+    11: "snow",
+}
+
+# The SCL classes a cloud mask hides by default: shadow, cloud and cirrus. No-data
+# is included so that pixels outside the tile are not counted as clear.
+SCL_CLOUD_CLASSES = frozenset({0, 3, 8, 9, 10})
 
 # Common band combinations
 BAND_COMBINATIONS = {
@@ -58,6 +81,15 @@ BAND_COMBINATIONS = {
     "all_20m": ["B05", "B06", "B07", "B8A", "B11", "B12"],  # needs resolution=20
 }
 
+# Normalized-difference indices as (a, b) band pairs: index = (a - b) / (a + b).
+# The 20m pairs are the ones that need resolution=20; compute_index() knows this.
+INDEX_BANDS = {
+    "ndvi": ("B08", "B04"),  # vegetation, 10m
+    "ndwi": ("B03", "B08"),  # open water (McFeeters), 10m
+    "ndmi": ("B8A", "B11"),  # vegetation moisture, 20m
+    "nbr": ("B8A", "B12"),  # burn ratio, 20m
+}
+
 # The resolution subfolders a Sentinel-2 L2A product ships (L1C has none).
 AVAILABLE_RESOLUTIONS = (10, 20, 60)
 
@@ -68,8 +100,8 @@ AVAILABLE_RESOLUTIONS = (10, 20, 60)
 # and B10 is dropped from L2A entirely.
 L2A_BANDS_BY_RESOLUTION = {
     10: {"B02", "B03", "B04", "B08"},
-    20: {"B01", "B02", "B03", "B04", "B05", "B06", "B07", "B8A", "B11", "B12"},
-    60: {"B01", "B02", "B03", "B04", "B05", "B06", "B07", "B8A", "B09", "B11", "B12"},
+    20: {"B01", "B02", "B03", "B04", "B05", "B06", "B07", "B8A", "B11", "B12", "SCL"},
+    60: {"B01", "B02", "B03", "B04", "B05", "B06", "B07", "B8A", "B09", "B11", "B12", "SCL"},
 }
 
 
@@ -192,11 +224,15 @@ def crop_to_bbox(
     output_path = Path(output_path)
 
     with rasterio.open(input_path) as src:
+        if src.crs is None:
+            raise ValidationError(
+                f"{input_path.name} has no CRS, so the bbox cannot be placed on it",
+                field="input_path",
+            )
+
         # Transform bbox to source CRS
         if src.crs.to_epsg() != 4326:
             # bbox is in WGS84, transform to source CRS
-            from rasterio.warp import transform_bounds
-
             transformed_bbox = transform_bounds("EPSG:4326", src.crs, *bbox)
         else:
             transformed_bbox = bbox
@@ -205,7 +241,18 @@ def crop_to_bbox(
         geom = box(*transformed_bbox)
 
         # Crop
-        out_image, out_transform = mask(src, [geom], crop=True, all_touched=True)
+        try:
+            out_image, out_transform = mask(src, [geom], crop=True, all_touched=True)
+        except ValueError as e:
+            # rasterio's own message ("Input shapes do not overlap raster") says
+            # nothing about which raster or which bbox.
+            raster_bbox, _ = get_bounds_from_raster(input_path)
+            raise ValidationError(
+                f"bbox {bbox} does not overlap {input_path.name}, whose extent is "
+                f"[{', '.join(f'{v:.4f}' for v in raster_bbox)}]. Sentinel-2 tiles "
+                "are about 110 km wide: check the product covers the area.",
+                field="bbox",
+            ) from e
 
         # Select bands if specified
         if bands:
@@ -393,13 +440,22 @@ def stack_bands(
     band_paths: dict[str, Path],
     output_path: Union[str, Path],
     band_order: Optional[list[str]] = None,
+    resampling: Optional[str] = None,
 ) -> Path:
     """Stack multiple bands into a single multi-band GeoTIFF.
+
+    Bands whose size differs from the first one are resampled to match. The
+    default is bilinear for spectral bands and nearest-neighbour for ``SCL``,
+    which is categorical: averaging class 4 (vegetation) with class 8 (cloud)
+    does not give a class.
 
     Args:
         band_paths: Dictionary mapping band names to file paths
         output_path: Output GeoTIFF path
         band_order: Order of bands in output (default: sorted keys)
+        resampling: rasterio resampling method name (``"bilinear"``,
+            ``"nearest"``, ...) applied to every band. Default: bilinear, with
+            nearest for ``SCL``.
 
     Returns:
         Path to output stacked GeoTIFF
@@ -452,6 +508,8 @@ def stack_bands(
         }
     )
 
+    from rasterio.enums import Resampling
+
     # Stack bands
     output_path.parent.mkdir(parents=True, exist_ok=True)
     with rasterio.open(output_path, "w", **meta) as dst:
@@ -461,9 +519,8 @@ def stack_bands(
                 data = src.read(1)
                 # Resample if sizes don't match
                 if data.shape != (height, width):
-                    from rasterio.enums import Resampling
-
-                    data = src.read(1, out_shape=(height, width), resampling=Resampling.bilinear)
+                    method = resampling or ("nearest" if band_name == "SCL" else "bilinear")
+                    data = src.read(1, out_shape=(height, width), resampling=Resampling[method])
                 dst.write(data, i)
                 dst.set_band_description(i, band_name)
 
@@ -527,22 +584,29 @@ def crop_and_stack(
     return output_path
 
 
-def calculate_ndvi(
-    nir_path: Union[str, Path],
-    red_path: Union[str, Path],
+def normalized_difference(
+    a_path: Union[str, Path],
+    b_path: Union[str, Path],
     output_path: Union[str, Path],
+    name: str = "index",
 ) -> Path:
-    """Calculate NDVI (Normalized Difference Vegetation Index).
+    """Compute a normalized-difference index ``(a - b) / (a + b)``.
 
-    NDVI = (NIR - Red) / (NIR + Red)
+    NDVI, NDWI, NDMI and NBR are all this formula with a different band pair;
+    see ``INDEX_BANDS``. Pixels where ``a + b == 0`` (no data in both bands)
+    are written as 0 without raising a numpy warning.
 
     Args:
-        nir_path: Path to NIR band (B08 for Sentinel-2)
-        red_path: Path to Red band (B04 for Sentinel-2)
+        a_path: Path to the first band (e.g. NIR for NDVI)
+        b_path: Path to the second band (e.g. Red for NDVI)
         output_path: Output GeoTIFF path
+        name: Band description written to the output (e.g. ``"NDVI"``)
 
     Returns:
-        Path to NDVI output file (values -1 to 1)
+        Path to the output file (float32, values -1 to 1)
+
+    Raises:
+        ValidationError: If the two bands do not have the same shape
     """
     try:
         import numpy as np
@@ -555,19 +619,26 @@ def calculate_ndvi(
 
     output_path = Path(output_path)
 
-    with rasterio.open(nir_path) as nir_src, rasterio.open(red_path) as red_src:
-        nir = nir_src.read(1).astype(np.float32)
-        red = red_src.read(1).astype(np.float32)
+    with rasterio.open(a_path) as a_src, rasterio.open(b_path) as b_src:
+        a = a_src.read(1).astype(np.float32)
+        b = b_src.read(1).astype(np.float32)
 
-        # Calculate NDVI, avoiding division by zero
-        denominator = nir + red
-        ndvi = np.where(denominator > 0, (nir - red) / denominator, 0)
+        if a.shape != b.shape:
+            raise ValidationError(
+                f"Bands must have the same shape to compute {name}: "
+                f"{a.shape} vs {b.shape}. Extract both at the same resolution, "
+                "or stack them first so they are resampled to match.",
+                field="b_path",
+            )
 
-        # Clip to valid range
-        ndvi = np.clip(ndvi, -1, 1)
+        # Evaluate the division only where it is defined: np.where would
+        # compute both branches and warn on every zero denominator.
+        denominator = a + b
+        index = np.zeros_like(a, dtype=np.float32)
+        np.divide(a - b, denominator, out=index, where=denominator != 0)
+        index = np.clip(index, -1, 1)
 
-        # Write output
-        meta = nir_src.meta.copy()
+        meta = a_src.meta.copy()
         meta.update(
             {
                 "driver": "GTiff",
@@ -579,10 +650,182 @@ def calculate_ndvi(
 
         output_path.parent.mkdir(parents=True, exist_ok=True)
         with rasterio.open(output_path, "w", **meta) as dst:
-            dst.write(ndvi, 1)
-            dst.set_band_description(1, "NDVI")
+            dst.write(index, 1)
+            dst.set_band_description(1, name)
 
     return output_path
+
+
+def calculate_ndvi(
+    nir_path: Union[str, Path],
+    red_path: Union[str, Path],
+    output_path: Union[str, Path],
+) -> Path:
+    """Calculate NDVI (Normalized Difference Vegetation Index).
+
+    NDVI = (NIR - Red) / (NIR + Red). A thin wrapper over
+    ``normalized_difference``.
+
+    Args:
+        nir_path: Path to NIR band (B08 for Sentinel-2)
+        red_path: Path to Red band (B04 for Sentinel-2)
+        output_path: Output GeoTIFF path
+
+    Returns:
+        Path to NDVI output file (values -1 to 1)
+    """
+    return normalized_difference(nir_path, red_path, output_path, name="NDVI")
+
+
+def compute_index(
+    safe_path: Union[str, Path],
+    index: str,
+    bbox: Optional[list[float]] = None,
+    output_path: Optional[Union[str, Path]] = None,
+    resolution: Optional[int] = None,
+) -> Path:
+    """Compute a named index (``ndvi``, ``ndwi``, ``ndmi``, ``nbr``) from a product.
+
+    Extracts the two bands of ``INDEX_BANDS[index]`` from a SAFE folder or ZIP,
+    optionally crops them to ``bbox``, and writes the normalized difference.
+
+    Args:
+        safe_path: Path to .SAFE folder or .zip file
+        index: One of the keys of ``INDEX_BANDS``
+        bbox: Optional bounding box [min_lon, min_lat, max_lon, max_lat] to crop to
+        output_path: Output GeoTIFF path (default: ``<product>_<index>.tif``)
+        resolution: Resolution in metres. Default: the native one of the pair
+            (10 for ndvi/ndwi, 20 for ndmi/nbr)
+
+    Returns:
+        Path to the index GeoTIFF (float32, -1 to 1, band named after the index)
+
+    Raises:
+        ValidationError: If ``index`` is unknown or the bands cannot be extracted
+
+    Example:
+        >>> nbr = compute_index("S2A_MSIL2A_....zip", "nbr", bbox=[9.1, 45.4, 9.3, 45.5])
+    """
+    import tempfile
+
+    key = index.lower()
+    if key not in INDEX_BANDS:
+        raise ValidationError(
+            f"Unknown index: {index}. Known indices: {', '.join(sorted(INDEX_BANDS))}",
+            field="index",
+        )
+    band_a, band_b = INDEX_BANDS[key]
+
+    if resolution is None:
+        resolution = max(
+            SENTINEL2_BANDS[band_a]["resolution"], SENTINEL2_BANDS[band_b]["resolution"]
+        )
+
+    safe_path = Path(safe_path)
+    if output_path is None:
+        stem = safe_path.stem.replace(".SAFE", "")
+        output_path = safe_path.parent / f"{stem}_{key}.tif"
+    output_path = Path(output_path)
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmp = Path(tmpdir)
+        band_paths = extract_bands_from_safe(
+            safe_path, [band_a, band_b], output_dir=tmp, resolution=resolution
+        )
+        a_path, b_path = band_paths[band_a], band_paths[band_b]
+        if bbox:
+            a_path = crop_to_bbox(a_path, bbox, tmp / f"{band_a}_crop.tif")
+            b_path = crop_to_bbox(b_path, bbox, tmp / f"{band_b}_crop.tif")
+        normalized_difference(a_path, b_path, output_path, name=key.upper())
+
+    return output_path
+
+
+def cloud_mask_from_scl(
+    scl_path: Union[str, Path],
+    output_path: Optional[Union[str, Path]] = None,
+    classes: Any = SCL_CLOUD_CLASSES,
+) -> Path:
+    """Build a clear-sky mask from a Sentinel-2 L2A scene classification (SCL) band.
+
+    Args:
+        scl_path: Path to the SCL raster (extract it with
+            ``extract_bands_from_safe(..., ["SCL"], resolution=20)``)
+        output_path: Output GeoTIFF path (default: ``<scl>_mask.tif``)
+        classes: SCL classes to mask out. Default ``SCL_CLOUD_CLASSES``:
+            no-data, cloud shadow, medium/high probability cloud, thin cirrus.
+
+    Returns:
+        Path to a uint8 GeoTIFF where 1 = clear and 0 = masked
+
+    Example:
+        >>> mask = cloud_mask_from_scl("SCL_20m.jp2")
+    """
+    try:
+        import numpy as np
+        import rasterio
+    except ImportError as e:
+        raise ImportError(
+            "numpy and rasterio are required for processing. "
+            "Install with: pip install cdse-client[processing]"
+        ) from e
+
+    scl_path = Path(scl_path)
+    if not scl_path.exists():
+        raise ValidationError(f"Input file not found: {scl_path}", field="scl_path")
+
+    if output_path is None:
+        output_path = scl_path.parent / f"{scl_path.stem}_mask.tif"
+    output_path = Path(output_path)
+
+    with rasterio.open(scl_path) as src:
+        scl = src.read(1)
+        clear = ~np.isin(scl, list(classes))
+
+        meta = src.meta.copy()
+        meta.update({"driver": "GTiff", "dtype": "uint8", "count": 1, "compress": "lzw"})
+        # A JP2 source carries no nodata; the mask has an explicit meaning for 0.
+        meta.pop("nodata", None)
+
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        with rasterio.open(output_path, "w", **meta) as dst:
+            dst.write(clear.astype(np.uint8), 1)
+            dst.set_band_description(1, "clear")
+
+    return output_path
+
+
+def scl_clear_fraction(
+    scl_path: Union[str, Path],
+    classes: Any = SCL_CLOUD_CLASSES,
+) -> float:
+    """Fraction of pixels in an SCL raster that are not cloud, shadow or no-data.
+
+    Useful to skip an acquisition whose tile-level cloud cover looked fine but
+    whose clouds sit exactly over the area of interest.
+
+    Args:
+        scl_path: Path to the SCL raster, typically already cropped to the AOI
+        classes: SCL classes counted as not clear (default ``SCL_CLOUD_CLASSES``)
+
+    Returns:
+        A value between 0.0 (fully masked) and 1.0 (fully clear)
+    """
+    try:
+        import numpy as np
+        import rasterio
+    except ImportError as e:
+        raise ImportError(
+            "numpy and rasterio are required for processing. "
+            "Install with: pip install cdse-client[processing]"
+        ) from e
+
+    with rasterio.open(scl_path) as src:
+        scl = src.read(1)
+
+    if scl.size == 0:
+        return 0.0
+    return float(np.count_nonzero(~np.isin(scl, list(classes))) / scl.size)
 
 
 def get_bounds_from_raster(raster_path: Union[str, Path]) -> tuple[list[float], str]:
@@ -619,6 +862,7 @@ def reproject(
     output_path: Union[str, Path],
     target_crs: str = "EPSG:4326",
     resolution: Optional[float] = None,
+    resampling: str = "bilinear",
 ) -> Path:
     """Reproject a raster to a different CRS.
 
@@ -627,6 +871,8 @@ def reproject(
         output_path: Output raster path
         target_crs: Target CRS (default: WGS84)
         resolution: Target resolution (default: preserve original)
+        resampling: rasterio resampling method name. Use ``"nearest"`` for
+            categorical rasters such as SCL or a cloud mask.
 
     Returns:
         Path to reprojected raster
@@ -671,7 +917,7 @@ def reproject(
                     src_crs=src.crs,
                     dst_transform=transform,
                     dst_crs=target_crs,
-                    resampling=Resampling.bilinear,
+                    resampling=Resampling[resampling],
                 )
 
     return output_path

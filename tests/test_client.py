@@ -91,6 +91,7 @@ class TestCDSEClient:
             collection="sentinel-2-l2a",
             cloud_cover_max=20.0,
             limit=10,
+            coverage="center",
         )
 
     @patch.object(Catalog, "search_by_point")

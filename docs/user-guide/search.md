@@ -15,6 +15,30 @@ products = client.search(
 )
 ```
 
+## Small area or wide area: `coverage`
+
+By default `search()` keeps only the products whose footprint contains the **centre** of the
+bbox. For a field, a city or anything smaller than a Sentinel-2 tile (about 110 km) that is
+what you want: the one tile that actually covers the area, not its neighbours touching a
+corner.
+
+For an area wider than a tile it is wrong: the tiles away from the centre are dropped. Pass
+`coverage="any"` to keep every product intersecting the bbox:
+
+```python
+# A whole region: every tile, not just the central one
+products = client.search(
+    bbox=[8.5, 44.5, 11.5, 46.5],
+    start_date="2025-07-01",
+    end_date="2025-07-15",
+    coverage="any",
+    limit=100,
+)
+```
+
+The same option exists on `search_by_point`, `search_by_city`, the async client and the CLI
+(`cdse search --coverage any`).
+
 ## Search by point
 
 ```python
