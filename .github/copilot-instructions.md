@@ -4,7 +4,7 @@
 
 `cdse-client` is a Python client for the **Copernicus Data Space Ecosystem (CDSE)** - a drop-in replacement for the deprecated `sentinelsat` library.
 
-**Version**: 0.3.0 | **Python**: 3.9+ | **License**: MIT
+**Version**: single-sourced in `src/cdse/__init__.py` (latest release 1.1.0) | **Python**: 3.9+ | **License**: MIT
 
 ## Architecture
 
@@ -118,10 +118,9 @@ with tqdm(total=size, unit='B', unit_scale=True) as pbar:
 
 ### Release Checklist
 
-1. Bump `__version__` in `src/cdse/__init__.py`
-2. Bump `version` in `pyproject.toml`
-3. Add CHANGELOG.md entry
-4. Update README.md if API changed
+1. Bump `__version__` in `src/cdse/__init__.py` (`pyproject.toml` reads it dynamically; do not add a version there)
+2. Add CHANGELOG.md entry
+3. Update README.md if API changed
 
 ### Key Guidelines
 

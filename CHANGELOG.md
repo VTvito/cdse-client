@@ -44,6 +44,23 @@ its behaviour.
   `ValidationError` instead of an `AttributeError` (audit 17 and 18).
 - **`calculate_ndvi` no longer emits a numpy `RuntimeWarning`** on every call (audit 20).
 
+### Documentation
+
+- New **Use cases** page (`docs/use-cases.md`): the five persona examples below, with the
+  core code, the limits of each, the assumptions not yet checked against the live API, and a
+  roadmap.
+- `examples/agri_ndvi_timeseries.py`: cloud-screened NDVI curve for one field over a
+  growing season, using the SCL mask and removing the baseline 04.00 BOA offset.
+- `examples/wildfire_dnbr.py`: dNBR and USGS burn-severity classes with hectares per class,
+  from one pre-fire and one post-fire Sentinel-2 scene.
+- `examples/s1_pre_post_pairs.py`: Sentinel-1 GRD pairs from the same relative orbit before
+  and after an event, for flood change detection.
+- `examples/city_before_after.py`: true-colour views of a city at two dates, with an optional
+  cloud-masked NDVI/NDWI change map.
+- `examples/s5p_no2_monthly.py`: monthly mean tropospheric NO2 over a region from
+  Sentinel-5P, gridded to a GeoTIFF.
+- `examples/README.md` is now a table of the examples by persona.
+
 ## [1.1.0] - 2026-08-26
 
 Fourteen correctness defects, found by a full screening of `src/cdse` and each covered by a

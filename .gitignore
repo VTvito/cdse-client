@@ -145,6 +145,10 @@ Thumbs.db
 # Project specific
 downloads/
 data/
+# ...except the small sample inputs the examples ship with
+!examples/data/
+# Where the example scripts write their results
+output/
 *.zip
 *.SAFE/
 credentials.json
