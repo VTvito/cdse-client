@@ -7,6 +7,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+Additions that came out of writing real, persona-driven examples (see `examples/` and the
+use-cases page): a cloud mask, generic indices, a way to search areas wider than one tile, and
+a fix for Sentinel-3/5P product names. No public API is removed; every existing call keeps
+its behaviour.
+
+### Added
+
+- **SCL cloud mask.** `SCL` (the L2A scene classification) is now a known band, so
+  `extract_bands_from_safe(..., ["SCL"], resolution=20)` works. New `cloud_mask_from_scl()`
+  writes a clear/masked GeoTIFF from it and `scl_clear_fraction()` tells how much of an AOI
+  is usable, so a time series can skip a cloudy date instead of averaging clouds into it.
+  `SCL_CLASSES` and `SCL_CLOUD_CLASSES` document the classes.
+- **Generic normalized-difference indices.** `normalized_difference(a, b, out, name=)` is the
+  formula behind NDVI, NDWI, NDMI and NBR; `INDEX_BANDS` names the band pair of each, and
+  `compute_index(product, "nbr", bbox=...)` goes from a ZIP or SAFE folder to a cropped index
+  GeoTIFF in one call. `calculate_ndvi` is now a wrapper over it.
+- **`coverage="any"` on every search method** (`search`, `search_by_point`, `search_by_city`,
+  the async client, and `cdse search --coverage any`). The default, `"center"`, keeps only
+  products whose footprint contains the centre of the bbox, which is right for a field and
+  wrong for a region: for any area wider than one tile the other tiles were silently dropped.
+- **`resampling=` on `stack_bands` and `reproject`.** Categorical bands must not be
+  interpolated; `stack_bands` picks nearest-neighbour for `SCL` on its own.
+
+### Fixed
+
+- **Sentinel-3 and Sentinel-5P downloads looked up the wrong OData name.** The download URL
+  was resolved by appending `.SAFE` to every product name, but Sentinel-3 products end in
+  `.SEN3` and Sentinel-5P in `.nc`, so the exact-name lookup found nothing and the download
+  failed with "Could not determine download URL". The suffix now follows the mission. *Not
+  yet confirmed against the live API*: the Sentinel-5P example is the acceptance test.
+- **MultiPolygon footprints were only half-checked** by the centre-point filter (audit 08):
+  products split at the antimeridian could be dropped although they covered the point.
+- **`crop_to_bbox` explains a bbox that misses the raster** instead of letting rasterio's
+  "Input shapes do not overlap raster" through, and reports a raster with no CRS as a
+  `ValidationError` instead of an `AttributeError` (audit 17 and 18).
+- **`calculate_ndvi` no longer emits a numpy `RuntimeWarning`** on every call (audit 20).
+
 ## [1.1.0] - 2026-08-26
 
 Fourteen correctness defects, found by a full screening of `src/cdse` and each covered by a

@@ -60,13 +60,53 @@ tiff = crop_and_stack(
     L1C products have no resolution subfolders at all: every band comes at its
     native resolution and the `resolution` argument selects nothing.
 
-## NDVI
+## Indices: NDVI, NDWI, NDMI, NBR
+
+All four are the same formula, `(a - b) / (a + b)`, on a different band pair. `INDEX_BANDS`
+lists the pairs; `compute_index()` goes from a product to a cropped index GeoTIFF in one call:
 
 ```python
-from cdse.processing import calculate_ndvi
+from cdse.processing import compute_index
 
-ndvi_path = calculate_ndvi(nir_path="B08.tif", red_path="B04.tif", output_path="ndvi.tif")
+ndvi = compute_index("S2A_MSIL2A_....zip", "ndvi", bbox=[9.10, 45.40, 9.28, 45.52])
+nbr = compute_index("S2A_MSIL2A_....zip", "nbr", bbox=[9.10, 45.40, 9.28, 45.52])
 ```
+
+| Index | Bands | Resolution | Used for |
+|---|---|---|---|
+| `ndvi` | B08, B04 | 10 m | vegetation vigour |
+| `ndwi` | B03, B08 | 10 m | open water |
+| `ndmi` | B8A, B11 | 20 m | vegetation moisture |
+| `nbr` | B8A, B12 | 20 m | burn severity (pre minus post = dNBR) |
+
+`compute_index` picks the native resolution of the pair unless you pass `resolution=`. For
+bands you already have on disk, `normalized_difference(a, b, out, name="NBR")` does the
+arithmetic alone, and `calculate_ndvi(nir, red, out)` is the same thing named NDVI.
+
+## Cloud mask from SCL
+
+The tile-level cloud cover you filter on at search time says nothing about the clouds over
+*your* field. L2A products carry a per-pixel scene classification (`SCL`, 20 m) that does:
+
+```python
+from cdse.processing import cloud_mask_from_scl, extract_bands_from_safe, scl_clear_fraction
+
+scl = extract_bands_from_safe("S2A_MSIL2A_....zip", ["SCL"], resolution=20)["SCL"]
+
+if scl_clear_fraction(scl) < 0.7:
+    print("mostly cloud over the AOI, skip this date")
+
+mask = cloud_mask_from_scl(scl)  # uint8 GeoTIFF: 1 = clear, 0 = cloud/shadow/no-data
+```
+
+`SCL_CLOUD_CLASSES` (no-data, cloud shadow, medium and high probability cloud, thin cirrus) is
+the default set masked out; pass `classes=` to change it. `SCL_CLASSES` names all twelve.
+
+!!! note "SCL is categorical"
+
+    Never resample it bilinearly: the average of "vegetation" (4) and "cloud" (8) is not a
+    class. `stack_bands` uses nearest-neighbour for a band named `SCL` on its own; for other
+    tools, or for `reproject`, pass `resampling="nearest"` yourself.
 
 !!! note
 

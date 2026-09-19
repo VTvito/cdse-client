@@ -70,6 +70,7 @@ class Catalog:
         collection: str = "sentinel-2-l2a",
         cloud_cover_max: float = 100.0,
         limit: int = 10,
+        coverage: str = "center",
         **kwargs: Any,
     ) -> list[Product]:
         """Search for products in the CDSE catalog.
@@ -81,6 +82,12 @@ class Catalog:
             collection: Collection name (default: sentinel-2-l2a)
             cloud_cover_max: Maximum cloud coverage percentage (0-100)
             limit: Maximum number of results
+            coverage: ``"center"`` (default) keeps only products whose footprint
+                contains the centre of ``bbox``, which for a small area of
+                interest means "the tile that actually covers it". ``"any"``
+                keeps every product intersecting ``bbox``; use it when the area
+                is wider than one tile (about 100 km for Sentinel-2), otherwise
+                the tiles away from the centre are silently dropped.
             **kwargs: Additional STAC API parameters
 
         Returns:
@@ -94,6 +101,7 @@ class Catalog:
         self._validate_bbox(bbox)
         self._validate_dates(start_date, end_date)
         self._validate_cloud_cover(cloud_cover_max)
+        self._validate_coverage(coverage)
 
         center_lon = (bbox[0] + bbox[2]) / 2
         center_lat = (bbox[1] + bbox[3]) / 2
@@ -141,7 +149,8 @@ class Catalog:
                 filtered = self._filter_by_cloud_cover(features, cloud_cover_max)
 
                 # Filter by center point containment
-                filtered = self._filter_by_center_point(filtered, center_lon, center_lat)
+                if coverage == "center":
+                    filtered = self._filter_by_center_point(filtered, center_lon, center_lat)
 
                 products.extend(Product.from_stac_feature(f) for f in filtered)
 
@@ -286,36 +295,56 @@ class Catalog:
     def _point_in_geometry(lon: float, lat: float, geometry: dict[str, Any]) -> bool:
         """Check if a point is inside a geometry (simplified bbox check).
 
+        Every polygon of a MultiPolygon is tested: products crossing the
+        antimeridian (polar Sentinel-1, -3 and -5P scenes) are split in two, and
+        the point may sit in the second half.
+
         Args:
             lon: Point longitude
             lat: Point latitude
             geometry: GeoJSON geometry
 
         Returns:
-            True if point is inside geometry bounds
+            True if point is inside the bounds of any polygon
         """
         geom_type = geometry.get("type")
         coords = geometry.get("coordinates", [])
 
-        if geom_type == "MultiPolygon":
-            coords = coords[0] if coords else []
-
         if not coords:
             return True  # No geometry, assume inside
 
-        # Get outer ring
-        points = coords[0] if coords and isinstance(coords[0][0], list) else coords
+        polygons = coords if geom_type == "MultiPolygon" else [coords]
 
-        if not points:
-            return True
-
-        # Simple bounding box check
         try:
-            lons = [p[0] for p in points]
-            lats = [p[1] for p in points]
-            return min(lons) <= lon <= max(lons) and min(lats) <= lat <= max(lats)
+            for polygon in polygons:
+                # Outer ring; tolerate a bare ring passed as the polygon itself
+                points = polygon[0] if polygon and isinstance(polygon[0][0], list) else polygon
+                if not points:
+                    continue
+                lons = [p[0] for p in points]
+                lats = [p[1] for p in points]
+                if min(lons) <= lon <= max(lons) and min(lats) <= lat <= max(lats):
+                    return True
         except (IndexError, TypeError):
             return True
+
+        return False
+
+    @staticmethod
+    def _validate_coverage(coverage: str) -> None:
+        """Validate the ``coverage`` search option.
+
+        Args:
+            coverage: Value to validate
+
+        Raises:
+            ValidationError: If it is not ``"center"`` or ``"any"``
+        """
+        if coverage not in ("center", "any"):
+            raise ValidationError(
+                f"coverage must be 'center' or 'any', got {coverage!r}",
+                field="coverage",
+            )
 
     def _validate_bbox(self, bbox: list[float]) -> None:
         """Validate bounding box format and values.

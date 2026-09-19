@@ -93,6 +93,7 @@ class CDSEClient:
         collection: str = "sentinel-2-l2a",
         cloud_cover_max: float = 100.0,
         limit: int = 10,
+        coverage: str = "center",
         **kwargs: Any,
     ) -> list[Product]:
         """Search for products in the CDSE catalog.
@@ -104,6 +105,9 @@ class CDSEClient:
             collection: Collection name (default: sentinel-2-l2a)
             cloud_cover_max: Maximum cloud coverage percentage (0-100)
             limit: Maximum number of results
+            coverage: ``"center"`` (default) keeps only products whose footprint
+                contains the centre of ``bbox``; ``"any"`` keeps every product
+                intersecting it. Use ``"any"`` for areas wider than one tile.
             **kwargs: Additional STAC API parameters
 
         Returns:
@@ -120,6 +124,7 @@ class CDSEClient:
             collection=collection,
             cloud_cover_max=cloud_cover_max,
             limit=limit,
+            coverage=coverage,
             **kwargs,
         )
 
@@ -133,6 +138,7 @@ class CDSEClient:
         collection: str = "sentinel-2-l2a",
         cloud_cover_max: float = 100.0,
         limit: int = 10,
+        coverage: str = "center",
         **kwargs: Any,
     ) -> list[Product]:
         """Search for products by geographic point.
@@ -146,6 +152,7 @@ class CDSEClient:
             collection: Collection name
             cloud_cover_max: Maximum cloud coverage percentage
             limit: Maximum number of results
+            coverage: ``"center"`` (default) or ``"any"``; see ``search()``
             **kwargs: Additional STAC API parameters
 
         Returns:
@@ -160,6 +167,7 @@ class CDSEClient:
             collection=collection,
             cloud_cover_max=cloud_cover_max,
             limit=limit,
+            coverage=coverage,
             **kwargs,
         )
 
@@ -295,6 +303,7 @@ class CDSEClient:
         use_predefined: bool = False,
         geocoding_timeout: float = 10.0,
         geocoding_user_agent: str = "cdse-client",
+        coverage: str = "center",
         **kwargs: Any,
     ) -> list[Product]:
         """Search for products over a city.
@@ -314,6 +323,7 @@ class CDSEClient:
                 Useful as fallback when geopy is not installed.
             geocoding_timeout: Network timeout in seconds for live geocoding.
             geocoding_user_agent: User agent for Nominatim geocoding.
+            coverage: ``"center"`` (default) or ``"any"``; see ``search()``
             **kwargs: Additional STAC API parameters
 
         Returns:
@@ -356,6 +366,7 @@ class CDSEClient:
             collection=collection,
             cloud_cover_max=cloud_cover_max,
             limit=limit,
+            coverage=coverage,
             **kwargs,
         )
 

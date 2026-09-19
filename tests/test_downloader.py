@@ -7,7 +7,7 @@ from unittest.mock import MagicMock
 import pytest
 import requests
 
-from cdse.downloader import Downloader
+from cdse.downloader import Downloader, _odata_name
 from cdse.exceptions import DownloadError
 from cdse.product import Product
 
@@ -311,3 +311,55 @@ class TestRequestWithRetry:
 
         with pytest.raises(requests.exceptions.HTTPError):
             downloader._request_with_retry("get", "https://example.invalid")
+
+
+class TestOdataName:
+    """The OData name carries a per-mission container suffix; STAC ids do not."""
+
+    S2 = "S2A_MSIL2A_20240115T101031_N0510_R022_T32TQM_20240115T140512"
+    S1 = "S1A_IW_GRDH_1SDV_20240115T053012_20240115T053037_052123_064D2A_1A2B"
+    S3 = "S3A_OL_1_EFR____20240115T093000_20240115T093300_20240116T120000_0179_108_136_2160_PS1_O_NT_003"
+    S5P = "S5P_OFFL_L2__NO2____20240115T110000_20240115T124130_32345_03_020500_20240117T030000"
+
+    def test_sentinel_2_gets_safe(self):
+        assert _odata_name(self.S2) == f"{self.S2}.SAFE"
+
+    def test_sentinel_1_gets_safe(self):
+        assert _odata_name(self.S1) == f"{self.S1}.SAFE"
+
+    def test_sentinel_3_gets_sen3(self):
+        assert _odata_name(self.S3) == f"{self.S3}.SEN3"
+
+    def test_sentinel_5p_gets_nc(self):
+        assert _odata_name(self.S5P) == f"{self.S5P}.nc"
+
+    @pytest.mark.parametrize("suffix", [".SAFE", ".SEN3", ".nc", ".zip"])
+    def test_existing_suffix_is_kept(self, suffix):
+        assert _odata_name(f"NAME{suffix}") == f"NAME{suffix}"
+
+    def test_s5p_lookup_queries_the_nc_name(self, tmp_path):
+        """Audit A4: an S5P product used to be looked up as '<name>.SAFE' and never found."""
+        session = MagicMock(spec=requests.Session)
+        resp = MagicMock()
+        resp.json.return_value = {"value": [{"Id": "uuid-s5p"}]}
+        resp.raise_for_status = MagicMock()
+        session.get.return_value = resp
+
+        product = Product(
+            id=self.S5P,
+            name=self.S5P,
+            collection="sentinel-5p-l2",
+            datetime=None,
+            cloud_cover=None,
+            geometry={},
+            bbox=[],
+            properties={},
+            assets={},
+        )
+
+        url = Downloader(session, output_dir=str(tmp_path))._get_download_url(product)
+
+        assert url is not None and "uuid-s5p" in url
+        queried = session.get.call_args[0][0]
+        assert f"Name eq '{self.S5P}.nc'" in queried
+        assert ".SAFE" not in queried

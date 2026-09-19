@@ -22,7 +22,7 @@ state of the code is legible without reading the whole git history.
 | 05 | 🟠 | async_client.py | Token never refreshed during a batch `[L]` | ✅ **fixed** |
 | 06 | 🟠 | downloader.py | A single `requests.Session` shared across threads `[L]` | open |
 | 07 | 🟠 | cli.py | Exit code 0 even when nothing is downloaded `[P]` | ✅ **fixed** |
-| 08 | 🟡 | catalog.py | Only the first polygon of a MultiPolygon is evaluated `[L]` | open |
+| 08 | 🟡 | catalog.py | Only the first polygon of a MultiPolygon is evaluated `[L]` | ✅ **fixed** |
 | 09 | 🟡 | async_client.py | Async and sync return different results (`s3://` guard, center-point filter) `[L]` | ✅ **fixed** |
 | 10 | 🟡 | downloader.py | `max_retries=0` raises `UnboundLocalError` `[P]` | ✅ **fixed** |
 | 11 | 🟡 | cli.py | `ValidationError` uncaught, escapes as a traceback `[P]` | ✅ **fixed** |
@@ -31,10 +31,10 @@ state of the code is legible without reading the whole git history.
 | 14 | ⚪ | downloader.py | Streamed responses never closed between retries `[P]` | ✅ **fixed** |
 | 15 | 🔴 | processing.py | L1C via ZIP: no band ever extracted `[P]` | ✅ **fixed** |
 | 16 | 🔴 | processing.py | Missing bands: bare `KeyError`, or a silently shorter stack `[P]` | ✅ **fixed** |
-| 17 | 🟠 | processing.py | `crop_to_bbox` outside the tile: raw rasterio `ValueError` `[P]` | open |
-| 18 | 🟠 | processing.py | `crop_to_bbox` on a raster with no CRS: `AttributeError` `[P]` | open |
+| 17 | 🟠 | processing.py | `crop_to_bbox` outside the tile: raw rasterio `ValueError` `[P]` | ✅ **fixed** |
+| 18 | 🟠 | processing.py | `crop_to_bbox` on a raster with no CRS: `AttributeError` `[P]` | ✅ **fixed** |
 | 19 | 🟡 | processing.py | The ZIP extractor loads each whole band into RAM `[P]` | open |
-| 20 | ⚪ | processing.py | `calculate_ndvi` emits a numpy RuntimeWarning `[P]` | open |
+| 20 | ⚪ | processing.py | `calculate_ndvi` emits a numpy RuntimeWarning `[P]` | ✅ **fixed** |
 | 21 | 🟠 | product.py | STAC results carry no `size`: every search reports 0.00 GB `[P]` | open |
 | 22 | 🟡 | converters.py | `to_dataframe([])` returns a 0×0 frame with no columns `[P]` | open |
 | 23 | 🟡 | converters.py | `to_geojson` emits `bbox: []` and `geometry: {}`, invalid GeoJSON `[P]` | open |
@@ -44,6 +44,11 @@ state of the code is legible without reading the whole git history.
 | 27 | ⚪ | geocoding.py | Near the poles the buffer produces an absurd bbox `[P]` | open |
 | 28 | ⚪ | geometry.py | `geojson_to_wkt` on empty coordinates emits `POLYGON ()` `[P]` | open |
 | 29 | ⚪ | processing.py | `crop_to_bbox` discarded band descriptions `[P]` | ✅ **fixed** |
+| 30 | 🟠 | catalog.py | The centre-point filter silently drops every tile but one for areas wider than a tile `[L]` | ✅ **fixed** |
+| 31 | 🟠 | downloader.py | Download URL lookup appends `.SAFE` to Sentinel-3 (`.SEN3`) and -5P (`.nc`) names `[L]` | ✅ **fixed**, live run pending |
+
+Entries 30 and 31 were found in September 2026 while writing the persona examples, after the
+original screening; their detail is at the end of the Detail section.
 
 ---
 
@@ -311,6 +316,30 @@ warnings raised: ['invalid value encountered in divide']
 division by zero happens regardless and the NaNs are discarded afterwards. The result is
 correct (verified: all finite), but every call dirties the output. Fixed by
 `np.divide(..., out=..., where=denominator > 0)`.
+
+### 🟠 30 — Centre-point filter drops tiles for wide areas `[L]` — ✅ FIXED
+
+`Catalog.search` always applied `_filter_by_center_point`, keeping only products whose
+footprint contains the centre of the bbox. For a field that is the right tile. For a bbox
+three degrees wide it is one tile out of three, with no warning: a regional user got a third
+of the coverage and no way to ask for the rest.
+
+**Fix**: `coverage="center"` (default, unchanged) or `coverage="any"` on every search method
+and `--coverage` on the CLI. Validated before any request; the async client shares the check.
+
+### 🟠 31 — `.SAFE` appended to every product name `[L]` — ✅ FIXED, live run pending
+
+`_get_download_url`, `download_quicklook` and the async `_get_download_url` all did
+`if not name.endswith(".SAFE"): name += ".SAFE"` before the exact `Name eq` lookup. Sentinel-3
+products are `.SEN3` containers and Sentinel-5P products are single `.nc` files, so for two of
+the six advertised collections the lookup could never match and every download ended in
+"Could not determine download URL for product". Not reproduced against the live API here
+(no credentials); read from the source and from the CDSE naming conventions.
+
+**Fix**: a single `_odata_name()` chooses the suffix by mission prefix (`S3` → `.SEN3`,
+`S5P` → `.nc`, otherwise `.SAFE`) and leaves a name that already carries a suffix alone. Whether
+Sentinel Hub STAC ids come with or without the suffix is unknown, which is why both cases are
+handled. **To confirm with credentials**: run `examples/s5p_no2_monthly.py`.
 
 ### Checked and found clean
 

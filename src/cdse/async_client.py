@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from cdse.catalog import _MAX_PAGE_SIZE, _MAX_SEARCH_PAGES, _MIN_PAGE_SIZE, Catalog
+from cdse.downloader import _odata_name
 from cdse.exceptions import AuthenticationError, CatalogError, DownloadError
 from cdse.product import Product
 
@@ -166,6 +167,7 @@ class CDSEClientAsync:
         collection: str = "sentinel-2-l2a",
         cloud_cover_max: float = 100.0,
         limit: int = 10,
+        coverage: str = "center",
         **kwargs: Any,
     ) -> list[Product]:
         """Search for products asynchronously.
@@ -177,11 +179,13 @@ class CDSEClientAsync:
             collection: Collection name
             cloud_cover_max: Maximum cloud cover percentage
             limit: Maximum results
+            coverage: ``"center"`` (default) or ``"any"``; see ``Catalog.search``
             **kwargs: Additional STAC parameters
 
         Returns:
             List of products matching criteria
         """
+        Catalog._validate_coverage(coverage)
         await self._ensure_session()
 
         center_lon = (bbox[0] + bbox[2]) / 2
@@ -226,7 +230,8 @@ class CDSEClientAsync:
             # The sync client also drops tiles that do not cover the search
             # centre; without this the two clients answered the same query
             # with different result sets.
-            filtered = Catalog._filter_by_center_point(filtered, center_lon, center_lat)
+            if coverage == "center":
+                filtered = Catalog._filter_by_center_point(filtered, center_lon, center_lat)
 
             products.extend(Product.from_stac_feature(f) for f in filtered)
 
@@ -392,12 +397,8 @@ class CDSEClientAsync:
         if product.download_url and not product.download_url.startswith("s3://"):
             return product.download_url
 
-        # Ensure .SAFE suffix for exact match
-        product_name = product.name
-        if not product_name.endswith(".SAFE"):
-            product_name = f"{product_name}.SAFE"
-
         # Use exact Name match - 60x FASTER than contains() or startswith()!
+        product_name = _odata_name(product.name)
         query_url = f"{self.CATALOG_ODATA_URL}?$filter=Name eq '{product_name}'"
         headers = {"Authorization": f"Bearer {self._access_token}"}
 
