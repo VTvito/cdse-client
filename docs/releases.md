@@ -1,5 +1,108 @@
 # Release Notes
 
+## Version 1.2.0 (2026-09-20)
+
+Everything in this release came out of one exercise: writing five workflows somebody would
+actually run, end to end, and adding only what they turned out to need. Upgrading is
+`pip install --upgrade cdse-client`; nothing is removed and no existing call changes
+behaviour.
+
+### A cloud mask that looks at your field, not at the tile
+
+Filtering a search on cloud cover tells you about a 110 km tile. It says nothing about the
+clouds over the twenty hectares you care about. L2A products carry a per-pixel scene
+classification, `SCL`, which does — and it was rejected as an unknown band.
+
+```python
+from cdse.processing import cloud_mask_from_scl, extract_bands_from_safe, scl_clear_fraction
+
+scl = extract_bands_from_safe("S2A_MSIL2A_....zip", ["SCL"], resolution=20)["SCL"]
+if scl_clear_fraction(scl) < 0.7:
+    print("mostly cloud over the area of interest, skip this date")
+mask = cloud_mask_from_scl(scl)   # uint8: 1 = clear, 0 = cloud, shadow, cirrus, no data
+```
+
+`SCL_CLASSES` names all twelve classes and `SCL_CLOUD_CLASSES` is the set masked by default.
+Being categorical, `SCL` must never be interpolated: `stack_bands` resamples it with
+nearest-neighbour on its own, and both `stack_bands` and `reproject` now take `resampling=`.
+
+### One call for NDVI, NDWI, NDMI and NBR
+
+All four are the same formula on a different band pair, and only NDVI existed.
+
+```python
+from cdse.processing import compute_index
+
+ndvi = compute_index("S2A_MSIL2A_....zip", "ndvi", bbox=[9.10, 45.40, 9.28, 45.52])
+nbr = compute_index("S2A_MSIL2A_....zip", "nbr", bbox=[9.10, 45.40, 9.28, 45.52])
+```
+
+`INDEX_BANDS` holds the pairs, `compute_index` picks the right resolution (10 m for NDVI and
+NDWI, 20 m for NDMI and NBR), extracts, crops and writes the index. `normalized_difference`
+does the arithmetic alone on bands you already have, and `calculate_ndvi` is now a wrapper
+over it — one that no longer prints a numpy warning on every call.
+
+### Searching an area wider than one tile
+
+`search()` always kept only the products whose footprint contains the **centre** of the
+bounding box. For a field or a city that is exactly right: the tile that covers it. For a
+region it quietly returned one tile out of several, with no way to ask for the rest.
+
+```python
+products = client.search(
+    bbox=[8.5, 44.5, 11.5, 46.5],   # a whole region, several tiles wide
+    start_date="2025-07-01",
+    end_date="2025-07-15",
+    coverage="any",                  # every intersecting product; "center" is the default
+    limit=100,
+)
+```
+
+The option is on `search`, `search_by_point`, `search_by_city`, the async client, and the CLI
+as `cdse search --coverage any`. The default is unchanged, so existing code is unaffected.
+
+### Sentinel-3 and Sentinel-5P downloads
+
+The download URL was resolved by appending `.SAFE` to the product name. Sentinel-3 products
+are `.SEN3` containers and Sentinel-5P products are single `.nc` files, so for two of the six
+advertised collections the exact-name lookup could never match: every download failed with
+"Could not determine download URL". The suffix now follows the mission.
+
+!!! warning "Not yet confirmed against the live API"
+
+    This fix was derived from the CDSE naming conventions, not from a live download — no
+    Sentinel-3 or Sentinel-5P product has been fetched with it yet. The
+    [Sentinel-5P example](use-cases.md) is the acceptance test. If it fails for you, please
+    [open an issue](https://github.com/VTvito/cdse-client/issues) with the OData query it
+    logs.
+
+### Five worked examples, by persona
+
+The new [Use cases](use-cases.md) page carries one workflow per persona, each a runnable
+script with defaults pointing at a real place and date:
+
+| Example | What it produces |
+|---|---|
+| Crop NDVI season | a cloud-screened NDVI curve for one field, as CSV and a plot |
+| Wildfire severity | dNBR and USGS severity classes with hectares per class |
+| Sentinel-1 pre/post pairs | GRD pairs from the same relative orbit around an event |
+| City before/after | two true-colour views years apart, plus an optional index change map |
+| Sentinel-5P NO2 | a monthly mean tropospheric NO2 GeoTIFF for a region |
+
+Each one says where the library stops — full-product downloads, bounding-box-only search,
+generic severity thresholds — and the page lists every assumption still unverified against
+the live API. Writing them is what surfaced the radiometry trap now documented there: from
+processing baseline 04.00, L2A digital numbers carry a -1000 offset, and ignoring it made
+about 35,000 hectares of healthy vegetation read as burned. `compute_index()` works on raw
+digital numbers, so the examples read `BOA_ADD_OFFSET` from the product metadata themselves.
+
+### Also fixed
+
+- Footprints split at the antimeridian (polar Sentinel-1, -3 and -5P scenes) were only half
+  checked by the centre-point filter, so a product covering the point could be dropped.
+- `crop_to_bbox` now says which bounding box missed which raster, and reports a raster
+  without a CRS as a `ValidationError` instead of an `AttributeError`.
+
 ## Version 1.1.0 (2026-08-26)
 
 Fourteen correctness defects, found by a full screening of the source and each covered by a

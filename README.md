@@ -52,11 +52,11 @@ You can also pass them explicitly: `CDSEClient(client_id=..., client_secret=...)
 
 | | |
 |---|---|
-| **Search** | STAC — bounding box, point + radius, city name, date range, cloud cover |
+| **Search** | STAC — bounding box, point + radius, city name, date range, cloud cover, one tile or every tile (`coverage`) |
 | **Download** | OData/Zipper — progress bars, parallel, MD5 checksums, quicklooks |
 | **Export** | `to_dataframe()`, `to_geojson()`, `to_geodataframe()` |
 | **Async** | `CDSEClientAsync` with concurrency control |
-| **Process** | crop, band stacking, NDVI, RGB previews (Sentinel-2) |
+| **Process** | crop, band stacking, SCL cloud mask, NDVI/NDWI/NDMI/NBR, RGB previews (Sentinel-2) |
 
 Collections: `sentinel-1-grd`, `sentinel-2-l1c`, `sentinel-2-l2a`, `sentinel-3-olci`,
 `sentinel-3-slstr`, `sentinel-5p-l2`.
@@ -89,7 +89,8 @@ pip install cdse-client[all]         # all of the above
 [API reference](https://vtvito.github.io/cdse-client/reference/client/) ·
 [FAQ](https://vtvito.github.io/cdse-client/faq/)
 
-Runnable scripts: [`examples/`](examples/)
+Runnable scripts: [`examples/`](examples/). Worked examples by persona (crop NDVI, burn
+severity, Sentinel-1 pairs, city before/after, NO2): [Use cases](https://vtvito.github.io/cdse-client/use-cases/).
 
 ## Migrating from sentinelsat
 

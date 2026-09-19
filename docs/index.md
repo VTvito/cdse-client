@@ -68,4 +68,5 @@ print(path)
 
 Next steps:
 - [Getting started](getting-started.md)
+- [Use cases](use-cases.md): end-to-end workflows by persona
 - [Migration from sentinelsat](migration.md)

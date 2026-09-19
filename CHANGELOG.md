@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-09-20
+
 Additions that came out of writing real, persona-driven examples (see `examples/` and the
 use-cases page): a cloud mask, generic indices, a way to search areas wider than one tile, and
 a fix for Sentinel-3/5P product names. No public API is removed; every existing call keeps
@@ -43,6 +45,23 @@ its behaviour.
   "Input shapes do not overlap raster" through, and reports a raster with no CRS as a
   `ValidationError` instead of an `AttributeError` (audit 17 and 18).
 - **`calculate_ndvi` no longer emits a numpy `RuntimeWarning`** on every call (audit 20).
+
+### Documentation
+
+- New **Use cases** page (`docs/use-cases.md`): the five persona examples below, with the
+  core code, the limits of each, the assumptions not yet checked against the live API, and a
+  roadmap.
+- `examples/agri_ndvi_timeseries.py`: cloud-screened NDVI curve for one field over a
+  growing season, using the SCL mask and removing the baseline 04.00 BOA offset.
+- `examples/wildfire_dnbr.py`: dNBR and USGS burn-severity classes with hectares per class,
+  from one pre-fire and one post-fire Sentinel-2 scene.
+- `examples/s1_pre_post_pairs.py`: Sentinel-1 GRD pairs from the same relative orbit before
+  and after an event, for flood change detection.
+- `examples/city_before_after.py`: true-colour views of a city at two dates, with an optional
+  cloud-masked NDVI/NDWI change map.
+- `examples/s5p_no2_monthly.py`: monthly mean tropospheric NO2 over a region from
+  Sentinel-5P, gridded to a GeoTIFF.
+- `examples/README.md` is now a table of the examples by persona.
 
 ## [1.1.0] - 2026-08-26
 
@@ -292,7 +311,8 @@ now considered stable and covered by semantic versioning guarantees.
 - `sentinel-3-slstr` - Sentinel-3 SLSTR
 - `sentinel-5p-l2` - Sentinel-5P Level-2
 
-[Unreleased]: https://github.com/VTvito/cdse-client/compare/v1.1.0...HEAD
+[Unreleased]: https://github.com/VTvito/cdse-client/compare/v1.2.0...HEAD
+[1.2.0]: https://github.com/VTvito/cdse-client/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/VTvito/cdse-client/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/VTvito/cdse-client/compare/v0.4.0...v1.0.0
 [0.4.0]: https://github.com/VTvito/cdse-client/compare/v0.3.3...v0.4.0
