@@ -5,9 +5,11 @@ This page is a practical checklist to get `cdse-client` ready for a clean PyPI r
 ## Before you tag
 
 - Version bump
-  - Update `__version__` in `src/cdse/__init__.py`.
-  - Update `version` in `pyproject.toml`.
-  - Add a new entry to `CHANGELOG.md`.
+  - Update `__version__` in `src/cdse/__init__.py`. That is the only place: `pyproject.toml`
+    declares `dynamic = ["version"]` and reads it from there.
+  - Add a new entry to `CHANGELOG.md`. The publish workflow extracts the section matching the
+    tag and fails if it is missing or empty, so the heading must read `## [X.Y.Z] - DATE`.
+  - Add the matching section to `docs/releases.md`.
 
 - Quality gates (local)
   - Run tests: `pytest -q`

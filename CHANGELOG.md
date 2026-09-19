@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-09-20
+
 Additions that came out of writing real, persona-driven examples (see `examples/` and the
 use-cases page): a cloud mask, generic indices, a way to search areas wider than one tile, and
 a fix for Sentinel-3/5P product names. No public API is removed; every existing call keeps
@@ -309,7 +311,8 @@ now considered stable and covered by semantic versioning guarantees.
 - `sentinel-3-slstr` - Sentinel-3 SLSTR
 - `sentinel-5p-l2` - Sentinel-5P Level-2
 
-[Unreleased]: https://github.com/VTvito/cdse-client/compare/v1.1.0...HEAD
+[Unreleased]: https://github.com/VTvito/cdse-client/compare/v1.2.0...HEAD
+[1.2.0]: https://github.com/VTvito/cdse-client/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/VTvito/cdse-client/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/VTvito/cdse-client/compare/v0.4.0...v1.0.0
 [0.4.0]: https://github.com/VTvito/cdse-client/compare/v0.3.3...v0.4.0
