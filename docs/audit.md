@@ -7,7 +7,8 @@ state of the code is legible without reading the whole git history.
 - **Screening**: 23 August 2026, against `5acb0db`
 - **Coverage**: all 13 modules of `src/cdse`. The screening is complete.
 - **Method**: `[P]` = reproduced by running the code · `[L]` = read from the source, not yet run
-- **Fixes**: 15 of 29 closed, each with a regression test
+- **Fixes**: 21 of 31 closed, each with a regression test (entries 30 and 31 added in
+  September 2026)
 - **Tests**: 102 → 188 passing with the optional extras installed; 136 in CI, which
   installs only `.[dev]` (see the note on skipped tests at the end)
 
@@ -481,7 +482,7 @@ this was tested. It could not be reproduced here: it needs confirming on a real 
 
 ## What is still open
 
-Fourteen defects. **None is critical.** The highest are 🟠: 06, 17, 18, 21.
+Ten defects. **None is critical.** The highest are 🟠: 06 and 21.
 
 ### 🟠 06 — Session shared across threads `[L]`
 
@@ -494,17 +495,9 @@ This is the only open defect that touches design: the choice is between a sessio
 (`threading.local`), a lock around the refresh, or both. The async path already solves the same
 problem with an `asyncio.Lock` in `_refresh_token` — that pattern can be mirrored.
 
-### 🟡 08 — MultiPolygon: only the first polygon `[L]`
-
-`catalog.py`, in `_point_in_geometry`: `coords = coords[0] if coords else []`. Products crossing
-the antimeridian (polar Sentinel-1, -3, -5P) are MultiPolygons: the second half is never
-evaluated and the product is dropped by the center-point filter. The
-`except (IndexError, TypeError): return True` fallback masks every malformed geometry. A few
-lines: iterate over all polygons instead of the first.
-
-The remaining open defects — 17, 18, 19, 20 in `processing.py`, 21 in `product.py`, 22 and 23
-in `converters.py`, 24 through 27 in `geocoding.py`, 28 in `geometry.py` — are described in
-full in the Detail section above.
+The remaining open defects — 19 in `processing.py`, 21 in `product.py`, 22 and 23 in
+`converters.py`, 24 through 27 in `geocoding.py`, 28 in `geometry.py` — are described in full
+in the Detail section above.
 
 ---
 
@@ -592,7 +585,9 @@ Recorded here because they cannot be inferred from the code or from the git hist
 - **Two existing tests encoded defect 01** (`test_download_success` and `test_download_all`
   declared a `content-length` that did not match the payload). Worth keeping in mind while
   looking at the other modules: a passing test does not prove the behaviour is right.
-- Defect 06 is the only one left that needs a design choice. Defect 08 is a few lines.
+- Defect 06 is the only one left that needs a design choice. Defect 08 was closed in
+  September 2026 together with 17, 18 and 20, while adding the pieces the persona examples
+  needed (see the `[Unreleased]` changelog entry).
 - To do once real credentials are available: verify pagination (defect 02) against the live
   API. The code accepts both Sentinel Hub's `context.next` and a STAC `next` link, but which
   form the API actually returns could not be confirmed.
